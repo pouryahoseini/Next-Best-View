@@ -1,0 +1,12 @@
+__pycache__/
+env/
+.ipynb_checkpoints/
+.idea/
+.project
+.pydevproject
+*.h5
+*.pkl
+*.npy
+*.csv
+*.png
+*.jpg
