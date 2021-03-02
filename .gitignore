@@ -8,5 +8,6 @@ env/
 *.pkl
 *.npy
 *.csv
+*.csv#
 *.png
 *.jpg
