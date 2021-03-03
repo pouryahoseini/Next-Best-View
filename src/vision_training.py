@@ -3,8 +3,45 @@ import cv2 as cv
 import os
 
 
-def train_vision():
-    pass
+def create_dempster_shafer_dataset(dataset_images, dataset_labels, label_codes, augmented_dataset_images, augmented_dataset_labels, universal_class_ratio_to_dataset, dst_augment_universal_class):
+    """
+    Create a dataset with an added 'Universal' class, equal to the specified portion of the training samples, for Dempster-Shafer fusion.
+    :param dataset_images: Input dataset images (4D array)
+    :param dataset_labels: Input dataset labels (1D array)
+    :param label_codes: Class label names (1D array of str)
+    :param augmented_dataset_images: Augmented dataset images
+    :param augmented_dataset_labels: Augmented dataset labels
+    :param universal_class_ratio_to_dataset: Ratio of the number of samples in the 'Universal' class to the total number of samples in the dataset
+    :param dst_augment_universal_class: Extract the Universal class from the augmented data (boolean)
+    :return: updated dataset images, labels, label codes
+    """
+
+    # Check if the number of sample images and labels are equal
+    assert dataset_images.shape[0] == dataset_labels.shape[0], "In creating Dempster-Shafer dataset: Number of sample images and labels are not equal."
+
+    if dst_augment_universal_class:
+        # Shuffle the dataset
+        shuffled_indices = np.random.choice(augmented_dataset_labels.shape[0], size=augmented_dataset_labels.shape[0], replace=False)
+        dst_dataset_images = augmented_dataset_labels[shuffled_indices]
+
+        # Decide on the number of samples in the universal class
+        universal_class_sample_no = int(universal_class_ratio_to_dataset * augmented_dataset_labels.shape[0])
+    else:
+        # Shuffle the dataset
+        shuffled_indices = np.random.choice(dataset_labels.shape[0], size=dataset_labels.shape[0], replace=False)
+        dst_dataset_images = dataset_images[shuffled_indices]
+
+        # Decide on the number of samples in the universal class
+        universal_class_sample_no = int(universal_class_ratio_to_dataset * dataset_labels.shape[0])
+
+    # Add a portion of the dataset to it
+    dst_dataset_images = np.concatenate((augmented_dataset_images, dst_dataset_images[: universal_class_sample_no]), axis=0)
+    dst_dataset_labels = np.concatenate((augmented_dataset_labels, np.ones(universal_class_sample_no, dtype=augmented_dataset_labels.dtype) * label_codes.shape[0]), axis=0)
+
+    # Add the universal class label code
+    dst_label_codes = np.append(label_codes, 'Universal')
+
+    return dst_dataset_images, dst_dataset_labels, dst_label_codes
 
 
 def get_train_samples(root_address, image_size, train_images_extension):
