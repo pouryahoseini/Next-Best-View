@@ -2,58 +2,66 @@ import numpy as np
 import cv2 as cv
 
 
-def train_data_augmentation(input_dataset):
+def train_data_augmentation(dataset_images, dataset_labels):
     """
     Creates a dataset with augmented samples.
-    :param input_dataset: Input dataset (3D numpy array (image_no, rows, columns))
+    :param dataset_images: Input dataset images (4D numpy array (image_no, rows, columns, channel))
+    :param dataset_labels: Input dataset labels (1D numpy array)
     :return: Augmented dataset
     """
 
+    # Check if the dataset images and labels have the same number of samples
+    assert dataset_labels.shape[0] == dataset_images.shape[0], "In data augmentation: The input dataset labels and images have different number of samples."
+
     # Initialize the augmented dataset
     number_of_augmentations = 22   # 5 + 3 + 6 + 2 + 5 + 1 (the last one is the original sample)
-    augmented_dataset = np.zeros((number_of_augmentations * input_dataset.shape[0], input_dataset.shape[1], input_dataset.shape[2]), dtype=input_dataset.dtype)
+    augmented_dataset_images = np.zeros((number_of_augmentations * dataset_images.shape[0],) + dataset_images.shape[1:], dtype=dataset_images.dtype)
+    augmented_dataset_labels = np.zeros(number_of_augmentations * dataset_images.shape[0], dtype=dataset_labels.dtype)
 
     # Repeat for all the samples in the dataset
-    for sample_no, sample in enumerate(input_dataset):
+    for sample_no, sample in enumerate(dataset_images):
 
         # Set the current index of the augmented dataset
         current_index = sample_no * number_of_augmentations
 
+        # Add the labels for the augmented data
+        augmented_dataset_labels[current_index: current_index + number_of_augmentations] = dataset_labels[sample_no]
+
         # Add the original image
-        augmented_dataset[current_index] = input_dataset[sample_no]
+        augmented_dataset_images[current_index] = sample
         current_index += 1
 
         # Crop image
         for crop_counter in range(5):
-            augmented_dataset[current_index + crop_counter] = crop_sample(input_dataset[sample_no], crop_counter)
+            augmented_dataset_images[current_index + crop_counter] = crop_sample(sample, crop_counter)
         current_index += crop_counter + 1
 
         # Blur image
         for blurring_counter in range(3):
-            augmented_dataset[current_index + blurring_counter] = blur_sample(input_dataset[sample_no], blurring_counter)
+            augmented_dataset_images[current_index + blurring_counter] = blur_sample(sample, blurring_counter)
         current_index += blurring_counter + 1
 
         # Change brightness
         for brightness_counter in range(6):
-            augmented_dataset[current_index + brightness_counter] = change_brightness(input_dataset[sample_no], brightness_counter)
+            augmented_dataset_images[current_index + brightness_counter] = change_brightness(sample, brightness_counter)
         current_index += brightness_counter + 1
 
         # Add noise
         for noise_counter in range(2):
-            augmented_dataset[current_index + noise_counter] = add_noise(input_dataset[sample_no], noise_counter + 1, noise_std = 0.1)
+            augmented_dataset_images[current_index + noise_counter] = add_noise(sample, noise_counter + 1, noise_std = 0.1)
         current_index += noise_counter + 1
 
         # Geometric transform
         for geometric_transform_counter in range(5):
-            augmented_dataset[current_index + geometric_transform_counter] = transform_geometrically(input_dataset[sample_no], geometric_transform_counter)
+            augmented_dataset_images[current_index + geometric_transform_counter] = transform_geometrically(sample, geometric_transform_counter)
 
-    return augmented_dataset
+    return augmented_dataset_images, augmented_dataset_labels
 
 
 def crop_sample(input_image, crop_mode):
     """
     Crop the input images.
-    :param input_image: Input image (2D numpy array)
+    :param input_image: Input image (3D numpy array)
     :param crop_mode: Defines how to crop (0: zoom by a factor of 2, 1: crop one-third from the top, 2: crop one-third from the bottom, 3: crop one-third from left, 4: crop one-third from right)
     :return: Cropped image
     """
@@ -67,15 +75,15 @@ def crop_sample(input_image, crop_mode):
 
     # Determine the crop operation
     if crop_mode == 0:  # zoom by a factor of 2
-        processed_image = cv.resize(input_image[height / 4: (3 * height) / 4, width / 4: (3 * width) / 4], input_image.shape)
+        processed_image = cv.resize(input_image[height / 4: (3 * height) / 4, width / 4: (3 * width) / 4], input_image.shape[: -1])
     elif crop_mode == 1:    # crop one-third from the top
-        processed_image = cv.resize(input_image[height / 3:, :], input_image.shape)
+        processed_image = cv.resize(input_image[height / 3:, :], input_image.shape[: -1])
     elif crop_mode == 2:    # crop one-third from the bottom
-        processed_image = cv.resize(input_image[0: (2 * height) / 3, :], input_image.shape)
+        processed_image = cv.resize(input_image[0: (2 * height) / 3, :], input_image.shape[: -1])
     elif crop_mode == 3:    # crop one-third from left
-        processed_image = cv.resize(input_image[:, width / 3:], input_image.shape)
+        processed_image = cv.resize(input_image[:, width / 3:], input_image.shape[: -1])
     else:    # crop one-third from right
-        processed_image = cv.resize(input_image[:, : (2 * width) / 3], input_image.shape)
+        processed_image = cv.resize(input_image[:, : (2 * width) / 3], input_image.shape[: -1])
 
     return processed_image
 
@@ -83,7 +91,7 @@ def crop_sample(input_image, crop_mode):
 def blur_sample(input_image, blur_mode):
     """
     Blur the input images.
-    :param input_image: Input image (2D numpy array)
+    :param input_image: Input image (3D numpy array)
     :param blur_mode: Defines how to blur (0: omni-directional, 1: horizontal blurring, 2: vertical blurring)
     :return: Blurred image
     """
@@ -105,7 +113,7 @@ def blur_sample(input_image, blur_mode):
 def change_brightness(input_image, brightness_mode):
     """
     Change brightness of an image.
-    :param input_image: Input image (2D numpy array)
+    :param input_image: Input image (3D numpy array)
     :param brightness_mode: Defines how to change brightness (0: +40, 1: +80, 2: +120, 3: -40, 4: -80, 5: -120)
     :return: Image with modified brightness
     """
@@ -135,10 +143,10 @@ def change_brightness(input_image, brightness_mode):
     return processed_image
 
 
-def add_noise(input_image, hsv_channel, noise_std = 0.1):
+def add_noise(input_image, hsv_channel, noise_std=0.1):
     """
     Add noise to an image.
-    :param input_image: Input image (2D numpy array)
+    :param input_image: Input image (3D numpy array)
     :param hsv_channel: Noise is added to this channel of the HSV color space
     :param noise_std: Standard deviation of the noise
     :return: Image with added noise
@@ -179,7 +187,7 @@ def add_noise(input_image, hsv_channel, noise_std = 0.1):
 def transform_geometrically(input_image, transform_type):
     """
     Transform an image geometrically (i.e. flip and rotation)
-    :param input_image: Input image (2D numpy array)
+    :param input_image: Input image (3D numpy array)
     :param transform_type: Defines how to transform the image (0: 90 degrees rotation, 1: 180 degrees rotation, 2: 270 degrees rotation, 3: vertical flip, 4: horizontal flip)
     :return: Geometrically transformed image
     """
