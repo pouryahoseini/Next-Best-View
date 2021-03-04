@@ -91,6 +91,7 @@ class NextBestView:
         self.config["blur_kernel_heavier"] = cfg_parser.getint(config_section, "blur_kernel_heavier")
         self.config["classifier_type"] = cfg_parser.get(config_section, "classifier_type")
         self.config["bag_of_words_descriptor"] = cfg_parser.get(config_section, "bag_of_words_descriptor")
+        self.config["hog_reduced_features_no"] = cfg_parser.getint(config_section, "hog_reduced_features_no")
         self.config["decision_fusion_type"] = cfg_parser.get(config_section, "decision_fusion_type")
         self.config["dst_universal_class_ratio_to_dataset"] = cfg_parser.getfloat(config_section, "dst_universal_class_ratio_to_dataset")
         self.config["dst_augment_universal_class"] = cfg_parser.getboolean(config_section, "dst_augment_universal_class")
