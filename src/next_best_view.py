@@ -1,9 +1,7 @@
-import numpy as np
 import configparser
 import os
-import pandas as pd
+import ast
 import src.vision_training as vision_training
-import src.train_data_augmentation as train_augmentation
 
 
 class NextBestView:
@@ -22,49 +20,9 @@ class NextBestView:
     def train_vision(self):
         """
         Train vision model.
-        :return: trained model
         """
 
-        # Set the vision training root address
-        root_address = './vision_training/'
-
-        # Read the dataset from files on drive
-        dataset_images, dataset_labels, label_codes = vision_training.get_train_samples(root_address=root_address,
-                                                                                       image_size=self.config["train_image_fix_size"],
-                                                                                       train_images_extension=self.config["train_images_extension"])
-
-        # Data augmentation
-        augmented_dataset_images, augmented_dataset_labels = train_augmentation.train_data_augmentation(dataset_images, dataset_labels)
-
-        # In the case of Dempster-Shafer fusion, add the 'Universal' class to the dataset
-        if self.config["decision_fusion_type"] == 'DST':
-            dataset_images, dataset_labels, label_codes = vision_training.create_dempster_shafer_dataset(dataset_images, dataset_labels, label_codes,
-                                                                                                         augmented_dataset_images=augmented_dataset_images,
-                                                                                                         augmented_dataset_labels=augmented_dataset_labels,
-                                                                                                         universal_class_ratio_to_dataset=self.config["dst_universal_class_ratio_to_dataset"],
-                                                                                                         dst_augment_universal_class=self.config["dst_augment_universal_class"])
-        else:
-            dataset_images = augmented_dataset_images
-            dataset_labels = augmented_dataset_labels
-
-        # Shuffle the data
-        shuffled_indices = np.choice(dataset_labels.shape[0], size=dataset_labels.shape[0], replace=False)
-        dataset_images = dataset_images[shuffled_indices]
-        dataset_labels = dataset_labels[shuffled_indices]
-
-        # Save the label codes on drive
-        df = pd.DataFrame({'Codes': list(range(label_codes.shape[0])), 'Labels': label_codes})
-        df.to_csv(os.path.join(root_address, 'labels.csv'))
-
-        # Choose the learning model
-        # if self.config["classifier_type"] == 'SVM':
-        #
-        # elif self.config["classifier_type"] == 'RF':
-        #
-        # elif self.config["classifier_type"] == 'NN':
-        #
-        # else:
-        #     raise Exception("Classifier type ' + classifier_type + ' not recognized.")
+        vision_training.train_vision(self.config)
 
     def read_config(self, config_file, config_section='DEFAULT'):
         """
@@ -90,13 +48,24 @@ class NextBestView:
         self.config["blur_kernel_lighter"] = cfg_parser.getint(config_section, "blur_kernel_lighter")
         self.config["blur_kernel_heavier"] = cfg_parser.getint(config_section, "blur_kernel_heavier")
         self.config["classifier_type"] = cfg_parser.get(config_section, "classifier_type")
-        self.config["bag_of_words_descriptor"] = cfg_parser.get(config_section, "bag_of_words_descriptor")
+        self.config["svm_kernel"] = cfg_parser.get(config_section, "svm_kernel")
+        self.config["svm_feature_types"] = ast.literal_eval(cfg_parser.get(config_section, "svm_feature_types"))
         self.config["hog_reduced_features_no"] = cfg_parser.getint(config_section, "hog_reduced_features_no")
+        self.config["hog_window_size"] = ast.literal_eval(cfg_parser.get(config_section, "hog_window_size"))
+        self.config["hog_block_size"] = ast.literal_eval(cfg_parser.get(config_section, "hog_block_size"))
+        self.config["hog_block_stride"] = ast.literal_eval(cfg_parser.get(config_section, "hog_block_stride"))
+        self.config["hog_cell_size"] = ast.literal_eval(cfg_parser.get(config_section, "hog_cell_size"))
+        self.config["hog_bin_no"] = cfg_parser.getint(config_section, "hog_bin_no")
+        self.config["color_histogram_size"] = cfg_parser.getint(config_section, "color_histogram_size")
+        self.config["bag_of_words_descriptor"] = cfg_parser.get(config_section, "bag_of_words_descriptor")
         self.config["decision_fusion_type"] = cfg_parser.get(config_section, "decision_fusion_type")
         self.config["dst_universal_class_ratio_to_dataset"] = cfg_parser.getfloat(config_section, "dst_universal_class_ratio_to_dataset")
         self.config["dst_augment_universal_class"] = cfg_parser.getboolean(config_section, "dst_augment_universal_class")
         self.config["train_vision_first"] = cfg_parser.getboolean(config_section, "train_vision_first")
-        self.config["train_image_fix_size"] = cfg_parser.getint(config_section, "train_image_fix_size")
+        self.config["train_image_fix_size"] = ast.literal_eval(cfg_parser.get(config_section, "train_image_fix_size"))
         self.config["train_images_extension"] = cfg_parser.get(config_section, "train_images_extension")
         self.config["tiles_measurement_file"] = cfg_parser.get(config_section, "tiles_measurement_file")
 
+        # Check if at least one of HOG, color histogram, and Hu moments is enabled if the classifier is SVM
+        if self.config['classifier_type'] == 'SVM' and len(self.config["svm_feature_types"]) == 0:
+            raise Exception("For SVM classifier, at least one feature type should be specified.")
