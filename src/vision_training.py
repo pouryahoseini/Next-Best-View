@@ -1,6 +1,137 @@
 import numpy as np
 import cv2 as cv
+import pandas as pd
 import os
+import pickle
+import sklearn
+import sklearn.model_selection
+import sklearn.svm
+import sklearn.ensemble
+import tensorflow as tf
+import src.train_data_augmentation as train_augmentation
+import src.feature_engineering as feature_engineering
+
+
+def train_vision(configurations):
+    """
+    Train vision model.
+    :return: trained model
+    """
+
+    # Set the vision training root address
+    root_address = './vision_training/'
+
+    # Read the dataset from files on drive
+    dataset_images, dataset_labels, label_codes = get_train_samples(root_address=root_address,
+                                                                    image_size=configurations["train_image_fix_size"],
+                                                                    train_images_extension=configurations["train_images_extension"])
+
+    # Data augmentation
+    augmented_dataset_images, augmented_dataset_labels = train_augmentation.train_data_augmentation(dataset_images, dataset_labels)
+
+    # In the case of Dempster-Shafer fusion, add the 'Universal' class to the dataset
+    if configurations["decision_fusion_type"] == 'DST':
+        dataset_images, dataset_labels, label_codes = create_dempster_shafer_dataset(dataset_images, dataset_labels, label_codes,
+                                                                                     augmented_dataset_images=augmented_dataset_images,
+                                                                                     augmented_dataset_labels=augmented_dataset_labels,
+                                                                                     universal_class_ratio_to_dataset=configurations["dst_universal_class_ratio_to_dataset"],
+                                                                                     dst_augment_universal_class=configurations["dst_augment_universal_class"])
+    else:
+        dataset_images = augmented_dataset_images
+        dataset_labels = augmented_dataset_labels
+
+    # Shuffle the data
+    shuffled_indices = np.choice(dataset_labels.shape[0], size=dataset_labels.shape[0], replace=False)
+    dataset_images = dataset_images[shuffled_indices]
+    dataset_labels = dataset_labels[shuffled_indices]
+
+    # Save the label codes on drive
+    df = pd.DataFrame({'Codes': list(range(label_codes.shape[0])), 'Labels': label_codes})
+    df.to_csv(os.path.join(root_address, 'labels.csv'))
+
+    # Choose the learning model
+    if configurations["classifier_type"] == 'SVM':
+
+        # Extract features
+        hog_features, color_hist_features, hu_moments_features = feature_engineering.extract_features(dataset_images,
+                                                                                                      feature_types=configurations["svm_feature_types"],
+                                                                                                      hog_window_size=configurations["hog_window_size"],
+                                                                                                      hog_block_size=configurations["hog_block_size"],
+                                                                                                      hog_block_stride=configurations["hog_block_stride"],
+                                                                                                      hog_cell_size=configurations["hog_cell_size"],
+                                                                                                      hog_bin_no=configurations["hog_bin_no"],
+                                                                                                      color_histogram_size=configurations["color_histogram_size"])
+
+        if 'HOG' in configurations["svm_feature_types"]:
+            # Train PCA feature reduction
+            pca = feature_engineering.pca_train(features_dataset=hog_features, number_of_features=configurations["hog_reduced_features_no"])
+
+            # Reduce HOG features
+            hog_features = feature_engineering.pca_project(sample=hog_features, pca=pca)
+
+        # Concatenate the feature vectors
+        feature_vector = np.concatenate((hog_features, color_hist_features, hu_moments_features), axis=1)
+
+        # Train SVM
+        model = SupportVectorMachine(feature_dataset=feature_vector,
+                                     label_dataset=dataset_labels,
+                                     save_directory='./model/',
+                                     svm_kernel=configurations["svm_kernel"])
+
+    elif configurations["classifier_type"] == 'RF':
+
+    elif configurations["classifier_type"] == 'NN':
+
+    else:
+        raise Exception("Classifier type ' + classifier_type + ' not recognized.")
+
+
+def SupportVectorMachine(feature_dataset, label_dataset, save_directory, svm_kernel):
+    """
+    Train a support vector machine classifier.
+    :param feature_dataset: Input feature dataset (2D array: sample_no, features)
+    :param label_dataset: Input label dataset (1D array)
+    :param save_directory: Directory to save the trained model (str)
+    :param svm_kernel: SVM kernel to use (str)
+    :return: The trained model
+    """
+
+    # Normalize the input feature vector
+    feature_dataset = sklearn.preprocessing.normalize(feature_dataset, norm='l2', axis=1)
+
+    # Make the label vector a 1D array by unraveling
+    label_dataset = label_dataset.ravel()
+
+    # Set the SVM classifier configurations
+    cache_size = 10000
+    class_weight = 'balanced'
+
+    # Set cross-validation settings
+    c_range = np.logspace(0, 1, 3)
+    gamma_range = np.logspace(0, 1, 3)
+    param_grid = dict(gamma=gamma_range, C=c_range)
+    cross_validation_settings = sklearn.model_selection.KFold(n_splits=5, shuffle=True)
+
+    # Find the optimal classifier parameters (C and Gamma)
+    svm_to_be_optimized = sklearn.svm.SVC(probability=True, cache_size=cache_size, class_weight=class_weight, decision_function_shape='ovr', kernel=svm_kernel)
+    grid_of_classifiers = sklearn.model_selection.GridSearchCV(svm_to_be_optimized, param_grid=param_grid, scoring=['accuracy', 'recall_macro', 'precision_macro', 'neg_log_loss'], refit='neg_log_loss', cv=cross_validation_settings, n_jobs=-1, verbose=3)
+
+    grid_of_classifiers.fit(feature_dataset, label_dataset)
+
+    # Define the SVM classifier
+    svm_classifier = sklearn.svm.SVC(probability=True, cache_size=cache_size, class_weight=class_weight, decision_function_shape='ovr', kernel=svm_kernel, **grid_of_classifiers.best_params_)
+    svm_classifier.fit(feature_dataset, label_dataset)
+
+    # Print the best found parameters and the best score
+    print('\n\nBest Accuracy: ' + str(grid_of_classifiers.best_score_))
+    print('Best Parameters: \n{}\n\n'.format(grid_of_classifiers.best_params_))
+
+    # Save the trained classifier
+    file_address = os.path.join(save_directory, 'SVM.pkl')
+    with open(file_address, "wb") as svm_file:
+        pickle.dump(svm_classifier, svm_file)
+
+    return svm_classifier
 
 
 def create_dempster_shafer_dataset(dataset_images, dataset_labels, label_codes, augmented_dataset_images, augmented_dataset_labels, universal_class_ratio_to_dataset, dst_augment_universal_class):
@@ -82,11 +213,11 @@ def get_train_samples(root_address, image_size, train_images_extension):
             dataset_labels = np.append(dataset_labels, np.zeros(1000 + len(current_image_list), dtype=dataset_labels.dtype), axis=0)
             dataset_images = np.append(dataset_images, np.zeros((1000 + len(current_image_list),) + dataset_images[1:], dtype=dataset_images.dtype), axis=0)
 
-        # Read images in the current folder
+        # Read images in the current folder and resize
         image_no = -1
         for image_no, image in enumerate(current_image_list):
             dataset_labels[sample_no + image_no] = class_no
-            dataset_images[sample_no + image_no] = cv.imread(os.path.join(current_address, image), cv.IMREAD_COLOR)
+            dataset_images[sample_no + image_no] = cv.resize(cv.imread(os.path.join(current_address, image), cv.IMREAD_COLOR), dsize=image_size)
 
         # Update the number of samples written so far
         sample_no += image_no + 1
