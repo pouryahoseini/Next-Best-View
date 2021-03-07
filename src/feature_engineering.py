@@ -1,12 +1,106 @@
 import numpy as np
 import pickle
+import os
 import cv2 as cv
 from sklearn.decomposition import PCA
 
 
-def extract_features(images, feature_types, hog_window_size, hog_block_size, hog_block_stride, hog_cell_size, hog_bin_no, color_histogram_size):
+def train_keypoint_features_extractor(images, labels, bag_of_words_feature_type, save_dir, sift_features_no, sift_octave_layers, sift_contrast_threshold, sift_edge_threshold, sift_sigma, kaze_threshold, kaze_octaves_no, kaze_octave_layers, bow_cluster_no):
     """
-    Extract features from each image in the input.
+    Train keypoint-based features extractor from input images and saves the feature extractor on a file.
+    :param images: Input images (4D array: image_no, row, column, channel)
+    :param labels: Class labels of the images (1D array)
+    :param bag_of_words_feature_type: Keypoint and descriptor technique (str)
+    :param save_dir: Directory to save the trained bag of words extractor (str)
+    :param sift_features_no: Number of keypoints to keep in SIFT (int) (0 means keep all)
+    :param sift_octave_layers: Number of octave layers in SIFT
+    :param sift_contrast_threshold: SIFT contrast threshold (float)
+    :param sift_edge_threshold: SIFT edge threshold (float)
+    :param sift_sigma: Gaussian blurring standard deviation in SIFT (float)
+    :param kaze_threshold: KAZE keypoint response threshold (float)
+    :param kaze_octaves_no: KAZE maximum octave evolution (int)
+    :param kaze_octave_layers: KAZE number of sub-levels per scale level (int)
+    :param bow_cluster_no: Number of cluster in the bag of words K-means trainer
+    :return: Features array (2D array), labels array where each row corresponds to the rows in the feature array (1D array)
+    """
+
+    # Check if the labels and images arrays have the same number of samples
+    assert images.shape[0] == labels.shape[0], "In training keypoint features extractor, number of input images and labels has to be equal."
+
+    # Create a keypoint detector instance
+    if bag_of_words_feature_type == 'SIFT':
+        keypoint_detector_descriptor = cv.SIFT_create(nfeatures=sift_features_no,
+                                                      nOctaveLayers=sift_octave_layers,
+                                                      contrastThreshold=sift_contrast_threshold,
+                                                      edgeThreshold=sift_edge_threshold,
+                                                      sigma=sift_sigma)
+    elif bag_of_words_feature_type == 'KAZE':
+        keypoint_detector_descriptor = cv.KAZE_create(extended=False,
+                                                      upright=False,
+                                                      threshold=kaze_threshold,
+                                                      nOctaves=kaze_octaves_no,
+                                                      nOctaveLayers=kaze_octave_layers)
+    else:
+        raise Exception("Unknown keypoint detection and description method, " + bag_of_words_feature_type + ", specified.")
+
+    # Create a descriptor matcher instance
+    descriptor_matcher = cv.BFMatcher(cv.NORM_L2)
+
+    # Create a bag of words extractor instance
+    bag_of_words_extractor = cv.BOWImgDescriptorExtractor(keypoint_detector_descriptor, descriptor_matcher)
+
+    # Create a bag of words K-means trainer instance
+    bag_of_words_trainer = cv.BOWKMeansTrainer(clusterCount=bow_cluster_no)
+
+    # Repeat for all samples
+    for image_no, image in enumerate(images):
+
+        # Convert the image to grayscale
+        image = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+
+        # Extract keypoints and their descriptors
+        _, descriptors = keypoint_detector_descriptor.detectAndCompute(image, mask=None)
+
+        # Add the current descriptor to the bag of words database
+        bag_of_words_trainer.add(descriptors)
+
+    # Train the bag of visual words and get its vocabulary
+    bag_of_words_vocabulary = bag_of_words_trainer.cluster()
+
+    # Import the bag of words vocabulary to its feature extractor
+    bag_of_words_extractor.setVocabulary(bag_of_words_vocabulary)
+
+    # Save the feature extractor on drive
+    with open(os.path.join(save_dir, 'BOW.pkl'), 'wb') as bow_file:
+        pickle.dump(bag_of_words_extractor, bow_file)
+
+    # Initialize the feature dataset
+    bow_labels = np.zeros(images.shape[0], dtype=int)
+    bow_features = np.zeros((images.shape[0], bag_of_words_extractor.descriptorSize()), dtype=np.float32)
+
+    # Compute the feature vector of all training samples
+    written_samples = 0
+    for image, label in zip(images, labels):
+
+        # Convert the image to grayscale
+        image = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+
+        # Extract keypoints of the current image and their bag of words description
+        keypoints = keypoint_detector_descriptor.detect()
+        bag_of_words_descriptor = bag_of_words_extractor.compute(image, keypoints)
+
+        # Add the current feature vector and its label to the dataset, if any keypoints has been found in the image
+        if bag_of_words_descriptor is not None:
+            bow_labels[written_samples] = label
+            bow_features[written_samples] = bag_of_words_descriptor
+            written_samples += 1
+
+    return bow_features, bow_labels
+
+
+def extract_engineered_features(images, feature_types, hog_window_size, hog_block_size, hog_block_stride, hog_cell_size, hog_bin_no, color_histogram_size):
+    """
+    Extract engineered features from each image in the input.
     :param images: Input images (4D array: image_no, row, column, channel; or 3D array: row, column, channel)
     :param feature_types: List of feature type to use (elements of the list can be: 'HOG', 'HuMoments', 'ColorHistogram')
     :param hog_window_size: HOG window size
@@ -15,7 +109,7 @@ def extract_features(images, feature_types, hog_window_size, hog_block_size, hog
     :param hog_cell_size: HOG cell size
     :param hog_bin_no: HOG bin number per cell
     :param color_histogram_size: Number of color histogram features
-    :return: HOG features, color histogram features, Hu moments features (if input is 4D, each output is 2D; if input is 3D, each input is 1D)
+    :return: HOG features, color histogram features, Hu moments features (if input is 4D, each output is 2D; if input is 3D, each output is 1D)
     """
 
     # If the input is 3D, reshape it to 4D
