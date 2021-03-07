@@ -53,14 +53,14 @@ def train_vision(configurations):
     if configurations["classifier_type"] == 'SVM':
 
         # Extract features
-        hog_features, color_hist_features, hu_moments_features = feature_engineering.extract_features(dataset_images,
-                                                                                                      feature_types=configurations["svm_feature_types"],
-                                                                                                      hog_window_size=configurations["hog_window_size"],
-                                                                                                      hog_block_size=configurations["hog_block_size"],
-                                                                                                      hog_block_stride=configurations["hog_block_stride"],
-                                                                                                      hog_cell_size=configurations["hog_cell_size"],
-                                                                                                      hog_bin_no=configurations["hog_bin_no"],
-                                                                                                      color_histogram_size=configurations["color_histogram_size"])
+        hog_features, color_hist_features, hu_moments_features = feature_engineering.extract_engineered_features(dataset_images,
+                                                                                                                 feature_types=configurations["svm_feature_types"],
+                                                                                                                 hog_window_size=configurations["hog_window_size"],
+                                                                                                                 hog_block_size=configurations["hog_block_size"],
+                                                                                                                 hog_block_stride=configurations["hog_block_stride"],
+                                                                                                                 hog_cell_size=configurations["hog_cell_size"],
+                                                                                                                 hog_bin_no=configurations["hog_bin_no"],
+                                                                                                                 color_histogram_size=configurations["color_histogram_size"])
 
         if 'HOG' in configurations["svm_feature_types"]:
             # Train PCA feature reduction
@@ -70,29 +70,103 @@ def train_vision(configurations):
             hog_features = feature_engineering.pca_project(sample=hog_features, pca=pca)
 
         # Concatenate the feature vectors
-        feature_vector = np.concatenate((hog_features, color_hist_features, hu_moments_features), axis=1)
+        dataset_features = np.concatenate((hog_features, color_hist_features, hu_moments_features), axis=1)
 
         # Train SVM
-        model = SupportVectorMachine(feature_dataset=feature_vector,
-                                     label_dataset=dataset_labels,
-                                     save_directory='./model/',
-                                     svm_kernel=configurations["svm_kernel"])
+        model = support_vector_machine(feature_dataset=dataset_features,
+                                       label_dataset=dataset_labels,
+                                       save_directory='./model/',
+                                       svm_kernel=configurations["svm_kernel"],
+                                       cross_validation_splits=configurations["cross_validation_splits"])
 
     elif configurations["classifier_type"] == 'RF':
 
+        # Train bag of words feature extractor and return the extracted features
+        dataset_features, dataset_labels = feature_engineering.train_keypoint_features_extractor(images=dataset_images,
+                                                                                                 labels=dataset_labels,
+                                                                                                 bag_of_words_feature_type=configurations["bag_of_words_feature_type"],
+                                                                                                 save_dir='./model/',
+                                                                                                 sift_features_no=configurations["sift_features_no"],
+                                                                                                 sift_octave_layers=configurations["sift_octave_layers"],
+                                                                                                 sift_contrast_threshold=configurations["sift_contrast_threshold"],
+                                                                                                 sift_edge_threshold=configurations["sift_edge_threshold"],
+                                                                                                 sift_sigma=configurations["sift_sigma"],
+                                                                                                 kaze_threshold=configurations["kaze_threshold"],
+                                                                                                 kaze_octaves_no=configurations["kaze_octaves_no"],
+                                                                                                 kaze_octave_layers=configurations["kaze_octave_layers"],
+                                                                                                 bow_cluster_no=configurations["bag_of_words_cluster_no"])
+
+        # Train random forest
+        model = random_forest(feature_dataset=dataset_features,
+                              label_dataset=dataset_labels,
+                              save_directory='./model/',
+                              rf_criterion=configurations["rf_criterion"],
+                              rf_estimators_no=configurations["rf_estimators_no"],
+                              cross_validation_splits=configurations["cross_validation_splits"])
+
     elif configurations["classifier_type"] == 'NN':
+
+        #
 
     else:
         raise Exception("Classifier type ' + classifier_type + ' not recognized.")
 
 
-def SupportVectorMachine(feature_dataset, label_dataset, save_directory, svm_kernel):
+def random_forest(feature_dataset, label_dataset, save_directory, rf_criterion, rf_estimators_no, cross_validation_splits):
+    """
+    Train a Random Forest Classifier.
+    :param feature_dataset: Input feature dataset (2D array: sample_no, features)
+    :param label_dataset: Input label dataset (1D array)
+    :param save_directory: Directory to save the trained model (str)
+    :param rf_criterion: Criterion to split a tree in the random forest
+    :param rf_estimators_no: Number of trees in the random forest
+    :param cross_validation_splits: Number of splits for cross-validation (int)
+    :return: The trained model
+    """
+
+    # Normalize the input feature vector
+    feature_dataset = sklearn.preprocessing.normalize(feature_dataset, norm='l2', axis=1)
+
+    # Make the label vector a 1D array by unraveling
+    label_dataset = label_dataset.ravel()
+
+    # Set cross-validation settings
+    cross_validation_settings = sklearn.model_selection.KFold(n_splits=cross_validation_splits, shuffle=True)
+
+    # Define a random forest classifier instance
+    rf_to_be_optimized = sklearn.ensemble.RandomForestClassifier(n_estimators=rf_estimators_no, criterion=rf_criterion, class_weight='balanced', n_jobs=-1)
+
+    # Set grid search parameters
+    param_grid = dict(max_depth=(None, 50, 100), min_samples_split=(5, 10), min_samples_leaf=(1, 3))
+    grid_of_classifiers = sklearn.model_selection.GridSearchCV(rf_to_be_optimized, param_grid=param_grid, scoring=['accuracy', 'recall_macro', 'precision_macro', 'neg_log_loss'], refit='neg_log_loss', cv=cross_validation_settings, n_jobs=-1, verbose=3)
+
+    # Perform grid search to find the best parameters for the random forest classifier
+    grid_of_classifiers.fit(feature_dataset, label_dataset)
+
+    # Use the best parameters to train the classifier on the whole training data
+    rf_classifier = sklearn.ensemble.RandomForestClassifier(n_estimators=rf_estimators_no, criterion=rf_criterion, class_weight='balanced', n_jobs=-1, **grid_of_classifiers.best_estimator_)
+    rf_classifier.fit(feature_dataset, label_dataset)
+
+    # Print the best found parameters and the best score
+    print('\n\nBest Accuracy: ' + str(grid_of_classifiers.best_score_))
+    print('Best Parameters: \n{}\n\n'.format(grid_of_classifiers.best_params_))
+
+    # Save the trained classifier
+    file_address = os.path.join(save_directory, 'RF.pkl')
+    with open(file_address, "wb") as rf_file:
+        pickle.dump(rf_classifier, rf_file)
+
+    return rf_classifier
+
+
+def support_vector_machine(feature_dataset, label_dataset, save_directory, svm_kernel, cross_validation_splits):
     """
     Train a support vector machine classifier.
     :param feature_dataset: Input feature dataset (2D array: sample_no, features)
     :param label_dataset: Input label dataset (1D array)
     :param save_directory: Directory to save the trained model (str)
     :param svm_kernel: SVM kernel to use (str)
+    :param cross_validation_splits: Number of splits for cross-validation (int)
     :return: The trained model
     """
 
@@ -107,18 +181,21 @@ def SupportVectorMachine(feature_dataset, label_dataset, save_directory, svm_ker
     class_weight = 'balanced'
 
     # Set cross-validation settings
+    cross_validation_settings = sklearn.model_selection.KFold(n_splits=cross_validation_splits, shuffle=True)
+
+    # Define a support vector machine classifier instance
+    svm_to_be_optimized = sklearn.svm.SVC(probability=True, cache_size=cache_size, class_weight=class_weight, decision_function_shape='ovr', kernel=svm_kernel)
+
+    # Set grid search parameters
     c_range = np.logspace(0, 1, 3)
     gamma_range = np.logspace(0, 1, 3)
     param_grid = dict(gamma=gamma_range, C=c_range)
-    cross_validation_settings = sklearn.model_selection.KFold(n_splits=5, shuffle=True)
-
-    # Find the optimal classifier parameters (C and Gamma)
-    svm_to_be_optimized = sklearn.svm.SVC(probability=True, cache_size=cache_size, class_weight=class_weight, decision_function_shape='ovr', kernel=svm_kernel)
     grid_of_classifiers = sklearn.model_selection.GridSearchCV(svm_to_be_optimized, param_grid=param_grid, scoring=['accuracy', 'recall_macro', 'precision_macro', 'neg_log_loss'], refit='neg_log_loss', cv=cross_validation_settings, n_jobs=-1, verbose=3)
 
+    # Find the optimal classifier parameters (C and Gamma)
     grid_of_classifiers.fit(feature_dataset, label_dataset)
 
-    # Define the SVM classifier
+    # Use the best parameters found to train the SVM classifier on the whole training data
     svm_classifier = sklearn.svm.SVC(probability=True, cache_size=cache_size, class_weight=class_weight, decision_function_shape='ovr', kernel=svm_kernel, **grid_of_classifiers.best_params_)
     svm_classifier.fit(feature_dataset, label_dataset)
 
