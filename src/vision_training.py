@@ -106,10 +106,207 @@ def train_vision(configurations):
 
     elif configurations["classifier_type"] == 'NN':
 
-        #
+        # Train the convolutional neural network
+        model = convolutional_neural_network(image_dataset=dataset_images,
+                                             label_dataset=dataset_labels,
+                                             network_type=configurations["nn_network_architecture"],
+                                             save_directory='./model/',
+                                             nn_epochs=configurations["nn_epochs"],
+                                             nn_max_learning_rate=configurations["nn_max_learning_rate"],
+                                             nn_batch_size=configurations["nn_batch_size"],
+                                             nn_validation_split=configurations["nn_validation_split"],
+                                             nn_early_stopping_patience=configurations["nn_early_stopping_patience"])
 
     else:
         raise Exception("Classifier type ' + classifier_type + ' not recognized.")
+
+
+def convolutional_neural_network(image_dataset, label_dataset, network_type, save_directory, nn_epochs, nn_max_learning_rate, nn_batch_size, nn_validation_split, nn_early_stopping_patience):
+    """
+    Train convolutional neural network.
+    :param image_dataset: Input image dataset (4D array: sample_no, row, column, channel)
+    :param label_dataset: Input label dataset (1D array)
+    :param network_type: An integer between 1 and 3 (i.e. 1, 2, 3) to indicate which of the three available network structures to use
+    :param save_directory: Directory to save the trained model on drive (str)
+    :param nn_epochs: Number of epochs to train the neural network (int)
+    :param nn_max_learning_rate: Maximum learning rate during training of the neural network (float)
+    :param nn_batch_size: Mini-batch size during training (int)
+    :param nn_validation_split: Validation split of the training data (float between 0 and 1)
+    :param nn_early_stopping_patience: Patience in epochs of early stopping of training (int)
+    :return: The trained convolutional neural network model
+    """
+
+    # Change range of pixel values to between 0 and 1
+    image_dataset = image_dataset / 255.0
+
+    # Create categorical one-hot labels for the network output
+    label_dataset_one_hot = tf.keras.utils.to_categorical(label_dataset)
+
+    # Shuffle data
+    shuffled_indices = np.random.permutation(image_dataset.shape[0])
+    image_dataset = image_dataset[shuffled_indices]
+    label_dataset_one_hot = label_dataset_one_hot[shuffled_indices]
+
+    # Define the input layer of the neural network
+    input_layer = tf.keras.layers.Input(shape=image_dataset.shape[1:])
+
+    # Decide on the network architecture
+    if network_type == 1:
+
+        # Network 1: Convolutional layers
+        ln_0 = tf.keras.layers.LayerNormalization(axis=[1, 2, 3])(input_layer)
+
+        cnn_layer_1 = tf.keras.layers.Conv2D(filters=3, kernel_size=5, kernel_initializer='glorot_normal', activity_regularizer='l2', padding='valid', strides=(1, 1))(ln_0)
+        activation_1 = tf.keras.layers.ReLU()(cnn_layer_1)
+
+        do_1 = tf.keras.layers.Dropout(rate=0.1)(activation_1)
+
+        cnn_layer_2 = tf.keras.layers.Conv2D(filters=2, kernel_size=5, kernel_initializer='glorot_normal', activity_regularizer='l2', padding='valid', strides=(1, 1))(do_1)
+        activation_2 = tf.keras.layers.ReLU()(cnn_layer_2)
+
+        max_pooling_1 = tf.keras.layers.MaxPooling2D(pool_size=(2, 2), strides=None, padding="valid")(activation_2)
+
+        do_2 = tf.keras.layers.Dropout(rate=0.1)(max_pooling_1)
+
+        cnn_layer_3 = tf.keras.layers.Conv2D(filters=2, kernel_size=5, kernel_initializer='glorot_normal', activity_regularizer='l2', padding='valid', strides=(1, 1))(do_2)
+        activation_3 = tf.keras.layers.ReLU()(cnn_layer_3)
+
+        do_3 = tf.keras.layers.Dropout(rate=0.1)(activation_3)
+
+        cnn_layer_4 = tf.keras.layers.Conv2D(filters=2, kernel_size=5, kernel_initializer='glorot_normal', activity_regularizer='l2', padding='valid', strides=(1, 1))(do_3)
+        activation_4 = tf.keras.layers.ReLU()(cnn_layer_4)
+
+        max_pooling_2 = tf.keras.layers.MaxPooling2D(pool_size=(3, 3), strides=None, padding="valid")(activation_4)
+
+        # Network 1: Dense layers
+        flattened = tf.keras.layers.Flatten()(max_pooling_2)
+
+        do_4 = tf.keras.layers.Dropout(rate=0.1)(flattened)
+
+        dense_1 = tf.keras.layers.Dense(units=800, kernel_initializer='glorot_normal', activity_regularizer='l2', use_bias=True)(do_4)
+        activation_5 = tf.keras.layers.ReLU()(dense_1)
+
+        do_5 = tf.keras.layers.Dropout(rate=0.1)(activation_5)
+
+        dense_2 = tf.keras.layers.Dense(units=150, kernel_initializer='glorot_normal', activity_regularizer='l2', use_bias=True)(do_5)
+        activation_6 = tf.keras.layers.ReLU()(dense_2)
+
+        output_layer = tf.keras.layers.Dense(units=label_dataset_one_hot.shape[1], activation='softmax', kernel_initializer='glorot_normal', activity_regularizer=None, use_bias=True)(activation_6)
+
+    elif network_type == 2: # Difference with Net 1: tanh instead of relu, average pooling instead of max pooling
+
+        # Network 2: Convolutional layers
+        ln_0 = tf.keras.layers.LayerNormalization(axis=[1, 2, 3])(input_layer)
+
+        cnn_layer_1 = tf.keras.layers.Conv2D(filters=3, kernel_size=5, kernel_initializer='glorot_normal', activity_regularizer='l2', padding='valid', strides=(1, 1))(ln_0)
+        activation_1 = tf.keras.activations.tanh(cnn_layer_1)
+
+        do_1 = tf.keras.layers.Dropout(rate=0.1)(activation_1)
+
+        cnn_layer_2 = tf.keras.layers.Conv2D(filters=2, kernel_size=5, kernel_initializer='glorot_normal', activity_regularizer='l2', padding='valid', strides=(1, 1))(do_1)
+        activation_2 = tf.keras.activations.tanh(cnn_layer_2)
+
+        max_pooling_1 = tf.keras.layers.AveragePooling2D(pool_size=(2, 2), strides=None, padding="valid")(activation_2)
+
+        do_2 = tf.keras.layers.Dropout(rate=0.1)(max_pooling_1)
+
+        cnn_layer_3 = tf.keras.layers.Conv2D(filters=2, kernel_size=5, kernel_initializer='glorot_normal', activity_regularizer='l2', padding='valid', strides=(1, 1))(do_2)
+        activation_3 = tf.keras.activations.tanh(cnn_layer_3)
+
+        do_3 = tf.keras.layers.Dropout(rate=0.1)(activation_3)
+
+        cnn_layer_4 = tf.keras.layers.Conv2D(filters=2, kernel_size=5, kernel_initializer='glorot_normal', activity_regularizer='l2', padding='valid', strides=(1, 1))(do_3)
+        activation_4 = tf.keras.activations.tanh(cnn_layer_4)
+
+        max_pooling_2 = tf.keras.layers.AveragePooling2D(pool_size=(3, 3), strides=None, padding="valid")(activation_4)
+
+        # Network 2: Dense layers
+        flattened = tf.keras.layers.Flatten()(max_pooling_2)
+
+        do_4 = tf.keras.layers.Dropout(rate=0.1)(flattened)
+
+        dense_1 = tf.keras.layers.Dense(units=800, kernel_initializer='glorot_normal', activity_regularizer='l2', use_bias=True)(do_4)
+        activation_5 = tf.keras.activations.tanh(dense_1)
+
+        do_5 = tf.keras.layers.Dropout(rate=0.1)(activation_5)
+
+        dense_2 = tf.keras.layers.Dense(units=150, kernel_initializer='glorot_normal', activity_regularizer='l2', use_bias=True)(do_5)
+        activation_6 = tf.keras.activations.tanh(dense_2)
+
+        output_layer = tf.keras.layers.Dense(units=label_dataset_one_hot.shape[1], activation='softmax', kernel_initializer='glorot_normal', activity_regularizer=None, use_bias=True)(activation_6)
+
+    elif network_type == 3: # Difference with Net 1: One less dropout, CNN, one max pooling layers at the end of the convolutional layers
+
+        # Network 3: Convolutional layers
+        ln_0 = tf.keras.layers.LayerNormalization(axis=[1, 2, 3])(input_layer)
+
+        cnn_layer_1 = tf.keras.layers.Conv2D(filters=3, kernel_size=5, kernel_initializer='glorot_normal', activity_regularizer='l2', padding='valid', strides=(1, 1))(ln_0)
+        activation_1 = tf.keras.layers.ReLU()(cnn_layer_1)
+
+        do_1 = tf.keras.layers.Dropout(rate=0.1)(activation_1)
+
+        cnn_layer_2 = tf.keras.layers.Conv2D(filters=2, kernel_size=5, kernel_initializer='glorot_normal', activity_regularizer='l2', padding='valid', strides=(1, 1))(do_1)
+        activation_2 = tf.keras.layers.ReLU()(cnn_layer_2)
+
+        max_pooling_1 = tf.keras.layers.MaxPooling2D(pool_size=(2, 2), strides=None, padding="valid")(activation_2)
+
+        do_2 = tf.keras.layers.Dropout(rate=0.1)(max_pooling_1)
+
+        cnn_layer_3 = tf.keras.layers.Conv2D(filters=2, kernel_size=5, kernel_initializer='glorot_normal', activity_regularizer='l2', padding='valid', strides=(1, 1))(do_2)
+        activation_3 = tf.keras.layers.ReLU()(cnn_layer_3)
+
+        # Network 3: Dense layers
+        flattened = tf.keras.layers.Flatten()(activation_3)
+
+        do_3 = tf.keras.layers.Dropout(rate=0.1)(flattened)
+
+        dense_1 = tf.keras.layers.Dense(units=800, kernel_initializer='glorot_normal', activity_regularizer='l2', use_bias=True)(do_3)
+        activation_4 = tf.keras.layers.ReLU()(dense_1)
+
+        do_4 = tf.keras.layers.Dropout(rate=0.1)(activation_4)
+
+        dense_2 = tf.keras.layers.Dense(units=150, kernel_initializer='glorot_normal', activity_regularizer='l2', use_bias=True)(do_4)
+        activation_5 = tf.keras.layers.ReLU()(dense_2)
+
+        output_layer = tf.keras.layers.Dense(units=label_dataset_one_hot.shape[1], activation='softmax', kernel_initializer='glorot_normal', activity_regularizer=None, use_bias=True)(activation_5)
+
+    else:
+        raise ValueError("The CNN network type is not recognized.")
+
+    # Save the trained classifier
+    file_address = os.path.join(save_directory, 'NN.h5')
+
+    # Define a learning rate scheduler
+    def schedule(epoch, lr):
+        if epoch < (nn_epochs / 4):
+            return nn_max_learning_rate
+        elif epoch < (nn_epochs / 2):
+            return nn_max_learning_rate / 3.0
+        elif epoch < (3 * nn_epochs / 4):
+            return nn_max_learning_rate / 10.0
+        else:
+            return nn_max_learning_rate / 20.0
+    learning_rate_scheduler = tf.keras.callbacks.LearningRateScheduler(schedule)
+
+    # Construct the NN model
+    model = tf.keras.Model(inputs=input_layer, outputs=output_layer)
+
+    # Define the learning optimizer
+    optimizer = tf.keras.optimizers.Adam(learning_rate=nn_max_learning_rate)
+
+    # Compile the model
+    model.compile(loss="categorical_crossentropy", optimizer=optimizer, metrics=['accuracy', tf.keras.metrics.Precision(), tf.keras.metrics.Recall()])
+
+    # Set model checkpoints so that the best model is saved
+    model_checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath=file_address, monitor="val_loss", save_best_only=True)
+
+    # Define early stopping conditions and returning the best model after finishing the training
+    early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=0, patience=nn_early_stopping_patience, restore_best_weights=True)
+
+    # Train the NN model
+    model.fit(image_dataset, label_dataset_one_hot, epochs=nn_epochs, batch_size=nn_batch_size, validation_split=nn_validation_split, shuffle=True, callbacks=[model_checkpoint, learning_rate_scheduler, early_stopping])
+
+    return model
 
 
 def random_forest(feature_dataset, label_dataset, save_directory, rf_criterion, rf_estimators_no, cross_validation_splits):
