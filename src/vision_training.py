@@ -120,6 +120,8 @@ def train_vision(configurations):
     else:
         raise Exception("Classifier type ' + classifier_type + ' not recognized.")
 
+    return model
+
 
 def convolutional_neural_network(image_dataset, label_dataset, network_type, save_directory, nn_epochs, nn_max_learning_rate, nn_batch_size, nn_validation_split, nn_early_stopping_patience):
     """
