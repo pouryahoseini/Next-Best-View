@@ -15,7 +15,7 @@ import src.feature_engineering as feature_engineering
 def train_vision(configurations):
     """
     Train vision model.
-    :return: trained model
+    :param configurations: Configurations dictionary
     """
 
     # Set the vision training root address
@@ -23,7 +23,7 @@ def train_vision(configurations):
 
     # Read the dataset from files on drive
     dataset_images, dataset_labels, label_codes = get_train_samples(root_address=root_address,
-                                                                    image_size=configurations["train_image_fix_size"],
+                                                                    image_size=configurations["image_fix_size"],
                                                                     train_images_extension=configurations["train_images_extension"])
 
     # Data augmentation
@@ -47,7 +47,54 @@ def train_vision(configurations):
 
     # Save the label codes on drive
     df = pd.DataFrame({'Codes': list(range(label_codes.shape[0])), 'Labels': label_codes})
-    df.to_csv(os.path.join(root_address, 'labels.csv'))
+    df.to_csv(os.path.join('./model/', 'labels.csv'))
+
+    # Repeat for all tiles and the original images
+    for tile_name, tile_no in [('original', 0)] + [('tile_' + str(tile_no), tile_no) for tile_no in range(1, 6)]:
+
+        # Extract the tiles from the dataset
+        dataset_tiles = extract_tile(dataset_images=dataset_images, tile_no=tile_no)
+
+        # Train the learning model for the current tile
+        train_model(dataset_images=dataset_tiles, dataset_labels=dataset_labels, configurations=configurations, save_directory='./model/' + tile_name)
+
+
+def extract_tile(dataset_images, tile_no):
+    """
+    Extract tiles from the images in the input dataset.
+    :param dataset_images: Input dataset images (4D array: sample_no, row, column, channel)
+    :param tile_no: Tile number that defines where in each image to crop and extract (int)
+    :return: Dataset of images with each image a cropping of the original image
+    """
+
+    # Extract based on the requested tile number
+    if tile_no == 0:    # Original image
+        extracted_tiles = dataset_images
+    elif tile_no == 1:
+        extracted_tiles = dataset_images[:, : int(dataset_images.shape[1] / 3), : int(dataset_images.shape[2] / 3)]
+    elif tile_no == 2:
+        extracted_tiles = dataset_images[:, : int(dataset_images.shape[1] / 3), int(dataset_images.shape[2] / 3): int(2 * dataset_images.shape[2] / 3)]
+    elif tile_no == 3:
+        extracted_tiles = dataset_images[:, : int(dataset_images.shape[1] / 3), int(2 * dataset_images.shape[2] / 3):]
+    elif tile_no == 4:
+        extracted_tiles = dataset_images[:, int(dataset_images.shape[1] / 3): int(2 * dataset_images.shape[1] / 3), : int(dataset_images.shape[2] / 3)]
+    elif tile_no == 5:
+        extracted_tiles = dataset_images[:, int(dataset_images.shape[1] / 3): int(2 * dataset_images.shape[1] / 3), int(2 * dataset_images.shape[2] / 3):]
+    else:
+        raise Exception("Error: Tile number " + str(tile_no) + " undefined.")
+
+    return extracted_tiles
+
+
+def train_model(dataset_images, dataset_labels, configurations, save_directory):
+    """
+    Train an image classifier.
+    :param dataset_images: Input images (4D array: sample_no, row, column, channel)
+    :param dataset_labels: Input labels (1D array)
+    :param configurations: Configurations dictionary
+    :param save_directory: Directory to save the trained model (str)
+    :return: Trained model
+    """
 
     # Choose the learning model
     if configurations["classifier_type"] == 'SVM':
@@ -64,7 +111,7 @@ def train_vision(configurations):
 
         if 'HOG' in configurations["svm_feature_types"]:
             # Train PCA feature reduction
-            pca = feature_engineering.pca_train(features_dataset=hog_features, number_of_features=configurations["hog_reduced_features_no"])
+            pca = feature_engineering.pca_train(features_dataset=hog_features, number_of_features=configurations["hog_reduced_features_no"], save_directory=save_directory)
 
             # Reduce HOG features
             hog_features = feature_engineering.pca_project(sample=hog_features, pca=pca)
@@ -75,7 +122,7 @@ def train_vision(configurations):
         # Train SVM
         model = support_vector_machine(feature_dataset=dataset_features,
                                        label_dataset=dataset_labels,
-                                       save_directory='./model/',
+                                       save_directory=save_directory,
                                        svm_kernel=configurations["svm_kernel"],
                                        cross_validation_splits=configurations["cross_validation_splits"])
 
@@ -85,7 +132,7 @@ def train_vision(configurations):
         dataset_features, dataset_labels = feature_engineering.train_keypoint_features_extractor(images=dataset_images,
                                                                                                  labels=dataset_labels,
                                                                                                  bag_of_words_feature_type=configurations["bag_of_words_feature_type"],
-                                                                                                 save_dir='./model/',
+                                                                                                 save_dir=save_directory,
                                                                                                  sift_features_no=configurations["sift_features_no"],
                                                                                                  sift_octave_layers=configurations["sift_octave_layers"],
                                                                                                  sift_contrast_threshold=configurations["sift_contrast_threshold"],
@@ -99,7 +146,7 @@ def train_vision(configurations):
         # Train random forest
         model = random_forest(feature_dataset=dataset_features,
                               label_dataset=dataset_labels,
-                              save_directory='./model/',
+                              save_directory=save_directory,
                               rf_criterion=configurations["rf_criterion"],
                               rf_estimators_no=configurations["rf_estimators_no"],
                               cross_validation_splits=configurations["cross_validation_splits"])
@@ -110,7 +157,7 @@ def train_vision(configurations):
         model = convolutional_neural_network(image_dataset=dataset_images,
                                              label_dataset=dataset_labels,
                                              network_type=configurations["nn_network_architecture"],
-                                             save_directory='./model/',
+                                             save_directory=save_directory,
                                              nn_epochs=configurations["nn_epochs"],
                                              nn_max_learning_rate=configurations["nn_max_learning_rate"],
                                              nn_batch_size=configurations["nn_batch_size"],
@@ -276,7 +323,7 @@ def convolutional_neural_network(image_dataset, label_dataset, network_type, sav
         raise ValueError("The CNN network type is not recognized.")
 
     # Save the trained classifier
-    file_address = os.path.join(save_directory, 'NN.h5')
+    file_address = os.path.join(save_directory, 'CNN.h5')
 
     # Define a learning rate scheduler
     def schedule(epoch, lr):
@@ -300,7 +347,7 @@ def convolutional_neural_network(image_dataset, label_dataset, network_type, sav
     model.compile(loss="categorical_crossentropy", optimizer=optimizer, metrics=['accuracy', tf.keras.metrics.Precision(), tf.keras.metrics.Recall()])
 
     # Set model checkpoints so that the best model is saved
-    model_checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath=file_address, monitor="val_loss", save_best_only=True)
+    model_checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath=file_address, monitor="val_loss", save_best_only=True, save_weights_only=False)
 
     # Define early stopping conditions and returning the best model after finishing the training
     early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=0, patience=nn_early_stopping_patience, restore_best_weights=True)
