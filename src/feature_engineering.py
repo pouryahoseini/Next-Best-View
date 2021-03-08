@@ -5,6 +5,56 @@ import cv2 as cv
 from sklearn.decomposition import PCA
 
 
+class KeypointFeaturesExtractor:
+
+    def __init__(self, load_dir, configurations):
+        """
+        Constructor
+        """
+
+        # Define a keypoint detector instance
+        if configurations['bag_of_words_feature_type'] == 'SIFT':
+            self.keypoint_detector_descriptor = cv.SIFT_create(nfeatures=configurations['sift_features_no'],
+                                                               nOctaveLayers=configurations['sift_octave_layers'],
+                                                               contrastThreshold=configurations['sift_contrast_threshold'],
+                                                               edgeThreshold=configurations['sift_edge_threshold'],
+                                                               sigma=configurations['sift_sigma'])
+        elif configurations['bag_of_words_feature_type'] == 'KAZE':
+            self.keypoint_detector_descriptor = cv.KAZE_create(extended=False,
+                                                               upright=False,
+                                                               threshold=configurations['kaze_threshold'],
+                                                               nOctaves=configurations['kaze_octaves_no'],
+                                                               nOctaveLayers=configurations['kaze_octave_layers'])
+        else:
+            raise Exception("Unknown keypoint detection and description method, " + configurations['bag_of_words_feature_type'] + ", specified.")
+
+        # Load the bag of words extractor instance
+        with open(os.path.join(load_dir, 'BOW.pkl'), 'rb') as bow_file:
+            self.bag_of_words_extractor = pickle.load(bow_file)
+
+    def extract_features(self, image):
+        """
+        Extract keypoint-based features from an image.
+        :param image: Input image (3D array: row, column, channel)
+        :return: Extracted features (1D array)
+        """
+
+        # Convert the image to grayscale
+        image = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+
+        # Extract keypoints
+        keypoints = self.keypoint_detector_descriptor.detect(image, mask=None)
+
+        # Extract bag of words descriptor
+        bag_of_words_descriptor = self.bag_of_words_extractor.compute(image, keypoints)
+
+        # If no keypoint found, set the feature vector to all zero
+        if bag_of_words_descriptor is not None:
+            bag_of_words_descriptor = np.zeros(self.bag_of_words_extractor.descriptorSize(), dtype=np.float32)
+
+        return bag_of_words_descriptor
+
+
 def train_keypoint_features_extractor(images, labels, bag_of_words_feature_type, save_dir, sift_features_no, sift_octave_layers, sift_contrast_threshold, sift_edge_threshold, sift_sigma, kaze_threshold, kaze_octaves_no, kaze_octave_layers, bow_cluster_no):
     """
     Train keypoint-based features extractor from input images and saves the feature extractor on a file.
@@ -62,7 +112,8 @@ def train_keypoint_features_extractor(images, labels, bag_of_words_feature_type,
         _, descriptors = keypoint_detector_descriptor.detectAndCompute(image, mask=None)
 
         # Add the current descriptor to the bag of words database
-        bag_of_words_trainer.add(descriptors)
+        if descriptors is not None:
+            bag_of_words_trainer.add(descriptors)
 
     # Train the bag of visual words and get its vocabulary
     bag_of_words_vocabulary = bag_of_words_trainer.cluster()
@@ -86,7 +137,7 @@ def train_keypoint_features_extractor(images, labels, bag_of_words_feature_type,
         image = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
 
         # Extract keypoints of the current image and their bag of words description
-        keypoints = keypoint_detector_descriptor.detect()
+        keypoints = keypoint_detector_descriptor.detect(image)
         bag_of_words_descriptor = bag_of_words_extractor.compute(image, keypoints)
 
         # Add the current feature vector and its label to the dataset, if any keypoints has been found in the image
@@ -242,11 +293,12 @@ def hog_descriptor(image, hog_window_size, hog_block_size, hog_block_stride, hog
     return hog_features
 
 
-def pca_train(features_dataset, number_of_features):
+def pca_train(features_dataset, number_of_features, save_directory):
     """
     PCA training.
     :param features_dataset: Input data to train the PCA on it (2D array)
     :param number_of_features: Maximum number of features in the reduced feature vector
+    :param save_directory: Directory to save the trained PCA
     :return: Trained PCA object (scikit-learn)
     """
 
@@ -257,7 +309,7 @@ def pca_train(features_dataset, number_of_features):
     pca.fit(features_dataset)
 
     # Save the trained PCA object on drive
-    with open('./model/PCA.pkl', 'wb') as pca_file:
+    with open(os.path.join(save_directory, 'PCA.pkl'), 'wb') as pca_file:
         pickle.dump(pca, pca_file)
 
     return pca
