@@ -19,7 +19,8 @@ class Classifier:
         """
 
         # Initialize variables
-        self.dst_universal_probability = 0
+        self.dst_universal_mass = 0
+        self.dst_unscaled_masses = np.array([])
 
         # Save the configurations for later use by other member functions
         self.config = configurations
@@ -69,8 +70,9 @@ class Classifier:
 
         # If Dempster-Shafer fusion enabled, separate the Universal class value and keep the sum of probabilities at 1
         if self.config['decision_fusion_type'] == 'DST':
-            probability_vector = probability_vector[: -1]
-            probability_vector = (1.0 / np.sum(probability_vector)) * probability_vector
+            self.dst_unscaled_masses = probability_vector[: -1]
+            self.dst_universal_mass = probability_vector[-1]
+            probability_vector = (1.0 / np.sum(self.dst_unscaled_masses)) * self.dst_unscaled_masses
 
         return probability_vector
 
@@ -155,10 +157,10 @@ class Classifier:
 
         return winner_label, winner_code, winner_probability
 
-    def get_dst_universal_probability(self):
+    def get_dst_masses(self):
         """
-        Getter function for Dempster-Shafer fusion's Universal class probability.
-        :return: Universal class probability in the Dempster-Shafer fusion
+        Getter function for Dempster-Shafer fusion's mass.
+        :return: Unscaled class masses of objects, Universal class mass
         """
 
-        return self.dst_universal_probability
+        return self.dst_unscaled_masses, self.dst_universal_mass
