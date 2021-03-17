@@ -7,6 +7,7 @@ import sklearn
 import sklearn.model_selection
 import sklearn.svm
 import sklearn.ensemble
+import sklearn.preprocessing
 import tensorflow as tf
 import src.train_data_augmentation as train_augmentation
 import src.feature_engineering as feature_engineering
@@ -114,7 +115,8 @@ def train_model(dataset_images, dataset_labels, configurations, save_directory):
             pca = feature_engineering.pca_train(features_dataset=hog_features, number_of_features=configurations["hog_reduced_features_no"], save_directory=save_directory)
 
             # Reduce HOG features
-            hog_features = feature_engineering.pca_project(sample=hog_features, pca=pca)
+            pca_projector = feature_engineering.PCAProjector()
+            hog_features = pca_projector.pca_project(sample=hog_features, pca=pca)
 
         # Concatenate the feature vectors
         dataset_features = np.concatenate((hog_features, color_hist_features, hu_moments_features), axis=1)
@@ -370,8 +372,8 @@ def random_forest(feature_dataset, label_dataset, save_directory, rf_criterion, 
     :return: The trained model
     """
 
-    # Normalize the input feature vector
-    feature_dataset = sklearn.preprocessing.normalize(feature_dataset, norm='l2', axis=1)
+    # Normalize the dataset
+    feature_dataset = train_normalizer(feature_dataset)
 
     # Make the label vector a 1D array by unraveling
     label_dataset = label_dataset.ravel()
@@ -416,8 +418,8 @@ def support_vector_machine(feature_dataset, label_dataset, save_directory, svm_k
     :return: The trained model
     """
 
-    # Normalize the input feature vector
-    feature_dataset = sklearn.preprocessing.normalize(feature_dataset, norm='l2', axis=1)
+    # Normalize the dataset
+    feature_dataset = train_normalizer(feature_dataset)
 
     # Make the label vector a 1D array by unraveling
     label_dataset = label_dataset.ravel()
@@ -455,6 +457,26 @@ def support_vector_machine(feature_dataset, label_dataset, save_directory, svm_k
         pickle.dump(svm_classifier, svm_file)
 
     return svm_classifier
+
+
+def train_normalizer(dataset):
+    """
+    Train a dataset normalizer, save it on drive, and return the normalized dataset.
+    :param dataset: Input dataset (2D array: sample_no, features)
+    :return: Normalized dataset
+    """
+
+    # Define a normalizer (scaler) instance
+    normalizer = sklearn.preprocessing.StandardScaler()
+
+    # Fit the normalizer and transform the dataset
+    normalized_dataset = normalizer.fit_transform(dataset)
+
+    # Save the normalizer on disk
+    with open('./model/Normalizer.pkl', 'wb') as normalizer_file:
+        pickle.dump(normalizer, normalizer_file)
+
+    return normalized_dataset
 
 
 def create_dempster_shafer_dataset(dataset_images, dataset_labels, label_codes, augmented_dataset_images, augmented_dataset_labels, universal_class_ratio_to_dataset, dst_augment_universal_class):
