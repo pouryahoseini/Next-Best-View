@@ -3,6 +3,7 @@ import pickle
 import os
 import cv2 as cv
 from sklearn.decomposition import PCA
+import sklearn.preprocessing
 
 
 class KeypointFeaturesExtractor:
@@ -257,9 +258,6 @@ def color_histogram_descriptor(image, color_histogram_size):
     # Concatenate the histogram feature vectors
     color_hist_features = np.concatenate((uv_hist, hs_hist), axis=0)
 
-    # Normalize the feature vector
-    color_hist_features = cv.normalize(color_hist_features, None, alpha=1, beta=0, norm_type=cv.NORM_L2, dtype=np.float)
-
     return color_hist_features
 
 
@@ -287,9 +285,6 @@ def hog_descriptor(image, hog_window_size, hog_block_size, hog_block_stride, hog
     # Extract HOG features
     hog_features = hog.compute(resized_gray_image, winStride=None, padding=(0, 0))
 
-    # Normalize HOG features
-    hog_features = cv.normalize(hog_features, None, alpha=1, beta=0, norm_type=cv.NORM_L2, dtype=np.float)
-
     return hog_features
 
 
@@ -301,6 +296,14 @@ def pca_train(features_dataset, number_of_features, save_directory):
     :param save_directory: Directory to save the trained PCA
     :return: Trained PCA object (scikit-learn)
     """
+
+    # Normalize the dataset
+    normalizer = sklearn.preprocessing.StandardScaler()
+    features_dataset = normalizer.fit_transform(features_dataset)
+
+    # Save the normalizer on drive
+    with open('./model/PCA_Normalizer.pkl', 'wb') as normalizer_file:
+        pickle.dump(normalizer, normalizer_file)
 
     # Create a PCA object
     pca = PCA(n_components=number_of_features)
@@ -315,26 +318,39 @@ def pca_train(features_dataset, number_of_features, save_directory):
     return pca
 
 
-def pca_project(sample, pca):
-    """
-    Reduce features using a pre-trained PCA.
-    :param sample: Sample or samples to reduce their features (1D or 2D numpy arrays)
-    :param pca: Pre-trained PCA
-    :return: Sample or samples with reduced features
-    """
+class PCAProjector:
+    def __init__(self):
+        """
+        Constructor
+        """
 
-    # Check the shape of the sample array
-    if sample.ndim == 1:
-        sample = np.reshape(sample, (1, -1))
-    elif sample.ndim > 2:
-        raise Exception("Number of dimensions of the input data for PCA should be at most 2.")
+        # Load the normalizer for PCA
+        with open('./model/PCA_Normalizer.pkl', 'rb') as normalizer_file:
+            self.normalizer = pickle.load(normalizer_file)
 
-    # Project to lower dimensions
-    projected_sample = pca.transform(sample)
+    def pca_project(self, sample, pca):
+        """
+        Reduce features using a pre-trained PCA.
+        :param sample: Sample or samples to reduce their features (1D or 2D numpy arrays)
+        :param pca: Pre-trained PCA
+        :return: Sample or samples with reduced features
+        """
 
-    # If the original sample was 1D, return 1D
-    if sample.ndim == 1:
-        projected_sample = np.squeeze(projected_sample)
+        # Normalize the input sample
+        sample = self.normalizer.transform(sample)
 
-    return projected_sample
+        # Check the shape of the sample array
+        if sample.ndim == 1:
+            sample = np.reshape(sample, (1, -1))
+        elif sample.ndim > 2:
+            raise Exception("Number of dimensions of the input data for PCA should be at most 2.")
+
+        # Project to lower dimensions
+        projected_sample = pca.transform(sample)
+
+        # If the original sample was 1D, return 1D
+        if sample.ndim == 1:
+            projected_sample = np.squeeze(projected_sample)
+
+        return projected_sample
 
