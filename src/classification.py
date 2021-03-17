@@ -21,9 +21,17 @@ class Classifier:
         # Initialize variables
         self.dst_universal_mass = 0
         self.dst_unscaled_masses = np.array([])
+        self.normalizer = sklearn.preprocessing.StandardScaler()
 
         # Save the configurations for later use by other member functions
         self.config = configurations
+
+        # Initialize a PCA projector instance if needed
+        if 'HOG' in self.config["svm_feature_types"]:
+            self.pca_projector = feature_engineering.PCAProjector()
+
+        # Load data normalizer
+        self.load_normalizer()
 
         # Set the classification function to use
         if configurations['classifier_type'] == 'NN':
@@ -110,13 +118,13 @@ class Classifier:
 
         # Reduce HOG features
         if 'HOG' in self.config["svm_feature_types"]:
-            hog_features = feature_engineering.pca_project(sample=hog_features, pca=self.feature_reduction)
+            hog_features = self.pca_projector.pca_project(sample=hog_features, pca=self.feature_reduction)
 
         # Concatenate the feature vectors
         feature_vector = np.concatenate((hog_features, color_hist_features, hu_moments_features))
 
         # Normalize the input feature vector
-        feature_vector = sklearn.preprocessing.normalize(feature_vector, norm='l2')
+        feature_vector = self.normalizer.transform(feature_vector)
 
         # Classify
         class_scores = self.model.predict_proba(feature_vector)
@@ -134,12 +142,21 @@ class Classifier:
         feature_vector = self.feature_extractor.extract_features(image)
 
         # Normalize the input feature vector
-        feature_vector = sklearn.preprocessing.normalize(feature_vector, norm='l2')
+        feature_vector = self.normalizer.transform(feature_vector)
 
         # Classify
         class_scores = self.model.predict_proba(feature_vector)
 
         return class_scores
+
+    def load_normalizer(self):
+        """
+        Load data normalizer from drive.
+        """
+
+        # Load normalizer from file
+        with open('./model/Normalizer.pkl', 'rb') as normalizer_file:
+            self.normalizer = pickle.load(normalizer_file)
 
     def find_winner_class(self, probability_vector):
         """
