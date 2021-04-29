@@ -27,7 +27,7 @@ In addition, to combine the classification results of the original view and the 
 The results demonstrate that while a randomly moving active object recognition mechanism generally improves classification performance, a next best view system adds to the improvements even more. On average, the performance measures, such as accuracy and F<sub>1</sub> score point to 23.1% (0.231) and 19.4% (0.194) improvements in classification performance with the next best view method, while a randomly-selecting active vision provides 17.5% and 15.1% enhancements. In the below figure, blue and red bars represent single-view and next active next best view recognition performance, whereas the green bar compare other methods including the components of the next best view system. The first green bar shows the randomly-selecting active vision.
 
 <p align="center">
-  <img src="./docs/metrics_per_criterion.jpg" alt="Performance metrics" height=550/>
+  <img src="./docs/metrics_per_criterion.jpg" alt="Performance metrics" height=600/>
 </p>
 
 In addition, ROC curves for different classifier types and decision fusion techniques illustrate the efficacy of next best view method compared to a single classification and randomly-selecting active vision.
