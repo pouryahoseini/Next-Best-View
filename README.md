@@ -44,7 +44,7 @@ To run the code, the file *main.py* should be executed. The configurations of th
 # Citation
 To cite this work, you may refer to our paper published in the proceedings of [17<sup>th</sup> International Conference on Computer Vision Theory and Applications](doi.org/10.5220/0010173708410851).
 
-`
+```
 @conference{hoseini2021nbv,
 author={Hoseini, Pourya and Paul, Shuvo and Nicolescu, Mircea and Nicolescu, Monica},
 title={A Surface and Appearance-based Next Best View System for Active Object Recognition},
@@ -55,9 +55,9 @@ publisher={SciTePress},
 organization={INSTICC},
 doi={10.5220/0010173708410851},
 isbn={978-989-758-488-6},
-issn={2184-4321},
+issn={2184-4321}
 }
-`
+```
 
 # Developers
 [Pourya Hoseini](https://github.com/pouryahoseini)
