@@ -5,7 +5,7 @@ The Python code for a one-shot next best view method for active object recogniti
 The next best view method works by dividing the current frontal viewpoint into a collection of tiles, where each peripheral tile of the image represents a side view of the current object. The following figure shows a sample situation where the frontal view is divided into nine tiles and choosing the top left would mean to look at the object from its top left next time.
 
 <p align="center">
-  <img src="./docs/cameras.jpg" alt="Tiling mechanism of the next best view method" height=150/>
+  <img src="./docs/cameras.jpg" alt="Tiling mechanism of the next best view method" height=200/>
 </p>
 
 It then considers four criteria to determine the next viewpoint in only a single shot and with merely the front view of the object available. The four criteria are: histogram variance, histogram third moment, foreshortening, and classification dissimilarity of a tile compared to the frontal view. Details of these components can be found in our paper: VISAPP ([pdf](./docs/VISAPP_paper.pdf) or [SciTePress](doi.org/10.5220/0010173708410851)), which describes a recent version of the next best view method. Due to the need to compute foreshortening, the next best view method requires a depth camera to provide both color images and depth maps.
@@ -15,7 +15,7 @@ Each of the four criteria then cast votes, according to the preference they give
 Our team worked on gathering a small dataset to be used specifically as a benchmark for active object recognition systems and their next best view mechanisms. This dataset is the only available dataset at the time of release to provide such a functionality for different objects, all of them in various lighting conditions and backgrounds. It was used to evaluate the next best view method and can be found in [here](https://github.com/pouryahoseini/Next-Best-View-Dataset). The following figure shows a test situation that involves two different frontal views to choose from and five side views as candidate next viewpoints.
 
 <p align="center">
-  <img src="./docs/dataset_views.jpg" alt="A test situation in the dataset" height=150/>
+  <img src="./docs/dataset_views.jpg" alt="A test situation in the dataset" height=200/>
 </p>
 
 The next best view method can work with any classifier. In our implementation, the following classifiers are available:
@@ -27,13 +27,13 @@ In addition, to combine the classification results of the original view and the 
 The results demonstrate that while a randomly moving active object recognition mechanism generally improves classification performance, a next best view system adds to the improvements even more. On average, the performance measures, such as accuracy and F<sub>1</sub> score point to 23.1% (0.231) and 19.4% (0.194) improvements in classification performance with the next best view method, while a randomly-selecting active vision provides 17.5% and 15.1% enhancements.
 
 <p align="center">
-  <img src="./docs/metrics_per_criterion.jpg" alt="Performance metrics" height=250/>
+  <img src="./docs/metrics_per_criterion.jpg" alt="Performance metrics" height=350/>
 </p>
 
 In addition, ROC curves for different classifier types and decision fusion techniques illustrate the efficacy of next best view method compared to a single classification and randomly-selecting active vision.
 
 <p align="center">
-  <img src="./docs/roc.jpg" alt="Performance metrics" height=400/>
+  <img src="./docs/roc.jpg" alt="Performance metrics" height=550/>
 </p>
 
 ## The Code
