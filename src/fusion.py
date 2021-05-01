@@ -13,7 +13,7 @@ def fuse(input_1, input_2, fusion_type, universal_mass_1=None, universal_mass_2=
     """
 
     # Check availability of Universal mass if the fusion type is Dempster-Shafer
-    if fusion_type == 'DST' and (universal_mass_1 is None or universal_mass_2 is None):
+    if fusion_type == 'Dempster-Shafer' and (universal_mass_1 is None or universal_mass_2 is None):
         raise Exception("Universal mass not provided for computing the fused probability vector.")
 
     # Call th proper fusion function
