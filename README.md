@@ -8,7 +8,7 @@ The next best view method works by dividing the current frontal viewpoint into a
   <img src="./docs/cameras.jpg" alt="Tiling mechanism of the next best view method" height=150/>
 </p>
 
-It then considers four criteria to determine the next viewpoint in only a single shot and with merely the front view of the object available. The four criteria are: histogram variance, histogram third moment, foreshortening, and classification dissimilarity of a tile compared to the frontal view. Details of these components can be found in our paper: VISAPP ([pdf](./docs/VISAPP_paper.pdf) or [SciTePress](doi.org/10.5220/0010173708410851)), which describes a recent version of the next best view method. Due to the need to compute foreshortening, the next best view method requires a depth camera to provide both color images and depth maps.
+It then considers four criteria to determine the next viewpoint in only a single shot and with merely the front view of the object available. The four criteria are: histogram variance, histogram third moment, foreshortening, and classification dissimilarity of a tile compared to the frontal view. Details of these components can be found in our paper: VISAPP ([pdf](./docs/VISAPP_paper.pdf) or [SciTePress](https://doi.org/10.5220/0010173708410851)), which describes a recent version of the next best view method. Due to the need to compute foreshortening, the next best view method requires a depth camera to provide both color images and depth maps.
 
 Each of the four criteria then cast votes, according to the preference they give to the tiles. The lowest ranked tile gets no votes, while others get one more vote than their less preferred one.
 
@@ -42,7 +42,7 @@ The current implementation is an improvement over the one reported in our [VISAP
 To run the code, the file *main.py* should be executed. The configurations of the classifiers, fusion, test data augmentation, and evaluation are set in the *config.cfg* under the *config* directory. 
 
 # Citation
-To cite this work, you may refer to our paper published in the proceedings of [17<sup>th</sup> International Conference on Computer Vision Theory and Applications](doi.org/10.5220/0010173708410851).
+To cite this work, you may refer to our paper published in the proceedings of [17<sup>th</sup> International Conference on Computer Vision Theory and Applications](https://doi.org/10.5220/0010173708410851).
 
 ```
 @conference{hoseini2021nbv,
