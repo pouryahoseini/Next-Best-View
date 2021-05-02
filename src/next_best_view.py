@@ -9,6 +9,7 @@ import src.classification as classification
 import src.test_data_augmentation as test_augmentation
 import src.surface_normal as surface_normal
 import src.fusion as fusion
+from src import evaluation
 
 
 class NextBestView:
@@ -22,7 +23,11 @@ class NextBestView:
         self.config = {}
 
         # Read configurations
-        self.read_config('./config/config.cfg')
+        self.read_config('config.cfg')
+
+        # Set some variables
+        self.variations = 30
+        self.total_tiles_no = 5
 
     def generate_scores(self):
         """
@@ -30,40 +35,46 @@ class NextBestView:
         """
 
         # Set number of benchmarks, test variations per benchmark, and tiles
-        benchmarks_no = len([directory for directory in os.listdir('./test_set/') if os.path.isdir(directory)])
-        variations = 30
-        total_tiles_no = 5
+        benchmarks_no = len([directory for directory in os.listdir('./test_set/') if os.path.isdir(os.path.join('./test_set/', directory))])
 
         # Initialize variables
-        tile_image = [] * total_tiles_no
-        tile_depth_map = [] * total_tiles_no
-        tile_probabilities_specific = [] * total_tiles_no
-        tile_probabilities_general = [] * total_tiles_no
-        side_probabilities = [] * total_tiles_no
-        fused_probabilities = [] * total_tiles_no
-        surface_normal_score = [] * total_tiles_no
-        converted_hist_variance = [] * total_tiles_no
-        converted_hist_moment_3 = [] * total_tiles_no
-        hist_uniformity = [] * total_tiles_no
-        hist_entropy = [] * total_tiles_no
-        csv_data = np.zeros((benchmarks_no * variations, 11), dtype=np.float)
+        tile_probabilities_specific = np.zeros(self.total_tiles_no, dtype=object)
+        tile_probabilities_general = np.zeros(self.total_tiles_no, dtype=object)
+        side_probabilities = np.zeros(self.total_tiles_no, dtype=object)
+        fused_probabilities = np.zeros(self.total_tiles_no, dtype=object)
+        surface_normal_score = np.zeros(self.total_tiles_no, dtype=np.float)
+        converted_hist_variance = np.zeros(self.total_tiles_no, dtype=np.float)
+        converted_hist_moment_3 = np.zeros(self.total_tiles_no, dtype=np.float)
+        hist_uniformity = np.zeros(self.total_tiles_no, dtype=np.float)
+        hist_information_gain = np.zeros(self.total_tiles_no, dtype=np.float)
+        csv_data = np.zeros((benchmarks_no * self.variations, 12), dtype=object)
+
+        # Read index of object labels
+        labels_data_frame = pd.read_csv('./model/labels.csv')
+        label_names = labels_data_frame.to_numpy()[:, labels_data_frame.columns.to_list().index('Labels')]
+        label_codes = labels_data_frame.to_numpy()[:, labels_data_frame.columns.to_list().index('Codes')]
 
         # Create classifier instances for the frontal image and the tiles
-        classifier = [] * 6
-        for tile_name, tile_no in [('original', 0)] + [('tile_' + str(tile_no), tile_no) for tile_no in range(1, 1 + total_tiles_no)]:
+        classifier = [None] * (self.total_tiles_no + 1)
+        for tile_name, tile_no in [('original', 0)] + [('tile_' + str(tile_no), tile_no) for tile_no in range(1, 1 + self.total_tiles_no)]:
             classifier[tile_no] = classification.Classifier(load_dir='./model/' + tile_name, configurations=self.config)
 
         # Repeat for all test benchmarks
-        for test in range(benchmarks_no * variations):
+        for test in range(benchmarks_no * self.variations):
 
             # Print the current benchmark number
-            print('\nTest#: {}\n'.format(test))
+            print('Test#: {}'.format(test))
 
             # Set test directory name
-            test_dir = str(int(test / variations))
+            test_dir = str(int(test / self.variations))
+
+            # Read label and encode it
+            with open(os.path.join('./test_set/', test_dir, "label.txt"), "r") as label_file:
+                label = label_file.read()
+            label_code = label_codes[np.where(label == label_names)[0][0]]
 
             # Set the frontal image filename and read it
-            if (test % variations) >= int(variations / 2):
+            if (test % self.variations) >= int(self.variations / 2):
                 frontal_image_address = os.path.join('./test_set/', test_dir, 'Front_Down.jpg')
             else:
                 frontal_image_address = os.path.join('./test_set/', test_dir, 'Front_Up.jpg')
@@ -71,7 +82,7 @@ class NextBestView:
 
             # Randomly select and read an overlay image
             random_benchmark = str(np.random.randint(low=0, high=benchmarks_no))
-            if (test % variations) >= int(variations / 2):
+            if (test % self.variations) >= int(self.variations / 2):
                 random_image_address = os.path.join('./test_set/', random_benchmark, 'Front_Down.jpg')
             else:
                 random_image_address = os.path.join('./test_set/', random_benchmark, 'Front_Up.jpg')
@@ -105,21 +116,21 @@ class NextBestView:
                 frontal_probabilities_unscaled, frontal_universal = classifier[0].get_dst_masses()
 
             # For each tile
-            for tile_no in range(1, 1 + total_tiles_no):
+            for tile_no in range(self.total_tiles_no):
 
                 # Extract the tile image and depth map
-                tile_image[tile_no] = extract_tile(frontal_image, tile_no)
-                tile_depth_map[tile_no] = extract_tile(frontal_depth_map, tile_no)
+                tile_image = extract_tile(frontal_image, tile_no + 1)
+                tile_depth_map = extract_tile(frontal_depth_map, tile_no + 1)
 
                 # Classify the tile
-                tile_probabilities_specific[tile_no] = classifier[tile_no].classify(tile_image[tile_no])
-                tile_probabilities_general[tile_no] = classifier[0].classify(tile_image[tile_no])
+                tile_probabilities_specific[tile_no] = classifier[tile_no].classify(tile_image)
+                tile_probabilities_general[tile_no] = classifier[0].classify(tile_image)
 
                 # Compute average depth component of surface normal
-                surface_normal_score[tile_no] = surface_normal.compute_average_surface_normal_depth(tile_depth_map[tile_no])
+                surface_normal_score[tile_no] = surface_normal.compute_foreshortening_score(tile_depth_map)
 
                 # Calculate histogram of grayscale tile
-                gray_tile = cv.cvtColor(tile_image[tile_no], cv.COLOR_BGR2GRAY)
+                gray_tile = cv.cvtColor(tile_image, cv.COLOR_BGR2GRAY)
                 tile_hist = np.squeeze(cv.calcHist(gray_tile, channels=(0,), histSize=(128,), ranges=(0, 256), mask=None))
                 tile_hist /= np.sum(tile_hist)
 
@@ -132,11 +143,11 @@ class NextBestView:
                 hist_moment_3 = np.sum(((np.arange(0, 256, 2) - hist_mean) ** 3) * tile_hist)
                 converted_hist_moment_3[tile_no] = 1.0 / (1 + np.abs(hist_moment_3))
 
-                # Compute uniformity score of the tile
+                # Compute histogram uniformity of the tile
                 hist_uniformity[tile_no] = np.sum(tile_hist ** 2)
 
-                # Compute histogram entropy of the tile
-                hist_entropy[tile_no] = - np.sum(tile_hist * np.log2(tile_hist))
+                # Compute histogram information gain of the tile (entropy of the original frontal image is constant for all the tiles; so it is set to 0)
+                hist_information_gain[tile_no] = 0 + np.sum(tile_hist * np.log2(tile_hist + np.finfo(float).eps))
 
                 # Read the side image, corresponding to the tile
                 side_image_address = os.path.join('./test_set/', test_dir, str(tile_no + 1) + '.jpg')
@@ -158,32 +169,38 @@ class NextBestView:
                     fused_probabilities[tile_no] = fusion.fuse(input_1=frontal_probabilities,
                                                                input_2=side_probabilities[tile_no],
                                                                fusion_type=self.config["decision_fusion_type"])
+
             # Save the results
             csv_data[test] = np.array([test,
                                        frontal_probabilities,
-                                       side_probabilities,
-                                       fused_probabilities,
-                                       tile_probabilities_specific,
-                                       tile_probabilities_general,
-                                       hist_uniformity,
-                                       converted_hist_variance,
-                                       converted_hist_moment_3,
-                                       hist_entropy,
-                                       surface_normal_score])
+                                       side_probabilities.copy(),
+                                       fused_probabilities.copy(),
+                                       tile_probabilities_specific.copy(),
+                                       tile_probabilities_general.copy(),
+                                       hist_uniformity.copy(),
+                                       converted_hist_variance.copy(),
+                                       converted_hist_moment_3.copy(),
+                                       hist_information_gain.copy(),
+                                       surface_normal_score.copy(),
+                                       label_code], dtype=object)
+
+        # Save the scores and probabilities in a numpy file
+        np.save('./results/scores.npy', csv_data)
 
         # Save the scores and probabilities in a CSV file
         df = pd.DataFrame(data=csv_data, columns=['Test Number',
                                                   'Front Probability',
                                                   'Side Probabilities',
                                                   'Fused Probabilities',
-                                                  'Tile Probabilities (Specific)',
-                                                  'Tile Probabilities (General)',
-                                                  'Uniformity',
-                                                  'STD (R)',
-                                                  'Converted Moment 3',
-                                                  'Entropy',
-                                                  'Surface Normal Score'], dtype=np.float)
-        df.to_csv('./results/scores.csv')
+                                                  'Tile Probabilities (Dedicated Classifier)',
+                                                  'Tile Probabilities (Common Classifier)',
+                                                  'Histogram Uniformity',
+                                                  'Converted Histogram Variance',
+                                                  'Converted Histogram Third Moment',
+                                                  'Histogram Information Gain',
+                                                  'Surface Normal Score',
+                                                  'Label'])
+        df.to_csv('./results/scores.csv', index=False)
 
     def train_vision(self):
         """
@@ -191,6 +208,13 @@ class NextBestView:
         """
 
         vision_training.train_vision(self.config)
+
+    def evaluate_next_best_view(self):
+        """
+        Evaluate the next best view mechanism.
+        """
+
+        evaluation.evaluate(self.config, compute_next_best_view, classification_dissimilarity, self.total_tiles_no)
 
     def read_config(self, config_file, config_section='DEFAULT'):
         """
@@ -216,11 +240,19 @@ class NextBestView:
         self.config["blur_kernel_lighter"] = cfg_parser.getint(config_section, "blur_kernel_lighter")
         self.config["blur_kernel_heavier"] = cfg_parser.getint(config_section, "blur_kernel_heavier")
         self.config["image_fix_size"] = ast.literal_eval(cfg_parser.get(config_section, "image_fix_size"))
+
+        self.config["confidence_ratio"] = cfg_parser.getfloat(config_section, "confidence_ratio")
+        self.config["recognition_threshold"] = cfg_parser.getfloat(config_section, "recognition_threshold")
+        self.config["confidence_ratio_sweep_max"] = cfg_parser.getfloat(config_section, "confidence_ratio_sweep_max")
+        self.config["confidence_ratio_sweep_no"] = cfg_parser.getint(config_section, "confidence_ratio_sweep_no")
+        self.config["recognition_threshold_sweep_no"] = cfg_parser.getint(config_section, "recognition_threshold_sweep_no")
+
+
         self.config["classifier_type"] = cfg_parser.get(config_section, "classifier_type")
         self.config["svm_kernel"] = cfg_parser.get(config_section, "svm_kernel")
         self.config["rf_criterion"] = cfg_parser.get(config_section, "rf_criterion")
         self.config["rf_estimators_no"] = cfg_parser.getint(config_section, "rf_estimators_no")
-        self.config["nn_network_architecture"] = cfg_parser.getint(config_section, "nn_network_architecture")
+        self.config["nn_network_architecture"] = cfg_parser.get(config_section, "nn_network_architecture")
         self.config["nn_epochs"] = cfg_parser.getint(config_section, "nn_epochs")
         self.config["nn_max_learning_rate"] = cfg_parser.getfloat(config_section, "nn_max_learning_rate")
         self.config["nn_batch_size"] = cfg_parser.getint(config_section, "nn_batch_size")
@@ -247,7 +279,6 @@ class NextBestView:
         self.config["decision_fusion_type"] = cfg_parser.get(config_section, "decision_fusion_type")
         self.config["dst_universal_class_ratio_to_dataset"] = cfg_parser.getfloat(config_section, "dst_universal_class_ratio_to_dataset")
         self.config["dst_augment_universal_class"] = cfg_parser.getboolean(config_section, "dst_augment_universal_class")
-        self.config["train_vision_first"] = cfg_parser.getboolean(config_section, "train_vision_first")
         self.config["train_images_extension"] = cfg_parser.get(config_section, "train_images_extension")
         self.config["cross_validation_splits"] = cfg_parser.getint(config_section, "cross_validation_splits")
 
@@ -289,3 +320,40 @@ def extract_tile(image, tile_no):
         raise Exception('Tile number ' + str(tile_no) + ' is not expected.')
 
     return tile
+
+
+def classification_dissimilarity(tile_probs, front_probs):
+    """
+    Measure the classification dissimilarity of the frontal view and a tile.
+    :param tile_probs: Classification probabilities of the tile (1D array)
+    :param front_probs: Classification probabilities of the frontal view (1D array)
+    :return: Classification dissimilarity (float)
+    """
+
+    # Measure classification dissimilarity by computing sum of absolute difference
+    diff = np.abs(np.array(tile_probs) - np.array(front_probs))
+    dissimilarity = np.sum(diff)
+
+    return dissimilarity
+
+
+def compute_next_best_view(histogram_variance, histogram_third_moment, foreshortening, classification_dissimilarity):
+    """
+    Choose the tile with the highest votes among the four criteria.
+    :param histogram_variance: Criterion 1, Variance of histogram (array of floats)
+    :param histogram_third_moment: Criterion 2, Third moment of histogram (array of floats)
+    :param foreshortening: Criterion 3, Foreshortening score (array of floats)
+    :param classification_dissimilarity: Criterion 4, Classification dissimilarity to the frontal image classification (array of floats)
+    :return: The chosen tile number (int), scores of each tile (array of floats)
+    """
+
+    # Create a histogram of votes
+    combined_histogram, _ = np.histogram(np.concatenate([[x] * i for measure in (histogram_variance, histogram_third_moment, foreshortening, classification_dissimilarity) for i, x in enumerate(np.argsort(measure))]), bins=np.arange(0, 6))
+
+    # Add noise, less than 1, to the vote counts to resolve ties in a random manner
+    combined_measure_scores = combined_histogram + np.random.rand(combined_histogram.size)
+
+    # Find the winner tile
+    winner_tile = np.argmax(combined_measure_scores)
+
+    return winner_tile, combined_measure_scores
