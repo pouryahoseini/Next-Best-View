@@ -30,7 +30,7 @@ The results demonstrate that while a randomly moving active object recognition m
   <img src="./docs/metrics_per_criterion.jpg" alt="Performance metrics" height=600/>
 </p>
 
-In addition, ROC curves for different classifier types and decision fusion techniques illustrate the efficacy of next best view method compared to a single classification and randomly-selecting active vision.
+In addition, ROC curves for different classifier types and decision fusion techniques illustrate the efficacy of next best view method compared to a single classification and randomly-selecting active vision. In the following figure, red stands for the next best view method, green for randomly-selecting active vision, and blue for no active vision. 
 
 <p align="center">
   <img src="./docs/roc.jpg" alt="Performance metrics" height=700/>
