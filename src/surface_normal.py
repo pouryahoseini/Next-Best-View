@@ -2,11 +2,11 @@ import numpy as np
 import cv2 as cv
 
 
-def compute_average_surface_normal_depth(depth_map):
+def compute_foreshortening_score(depth_map):
     """
-    Compute average length of the object surface normal's image on z-axis (depth axis) for all the pixels that lay on the object (z-axis is the perpendicular to the image plane).
+    Compute foreshortening score by computing the inverse of average length of the object surface normal's image on z-axis (depth axis) for all the pixels that lay on the object (z-axis is the perpendicular to the image plane).
     :param depth_map: Input the depth map
-    :return: Average depth of the surface normal for all the pixels on the object surface (float)
+    :return: Foreshortening score (float)
     """
 
     # Replace any nan values with the maximum value in the tile (thus set them as background)
@@ -31,7 +31,7 @@ def compute_average_surface_normal_depth(depth_map):
                 pixel_surface_normal = cv.normalize(np.array([dzdx, dzdy, 1]), dst=None)
 
                 # Dot product with the z-axis (depth axis) by choosing only the z (depth) component of the surface normal
-                normal_depth_sum += pixel_surface_normal[2]
+                normal_depth_sum += np.squeeze(pixel_surface_normal[2])
 
                 # Keep account of the foreground pixels
                 foreground_count += 1
@@ -40,9 +40,12 @@ def compute_average_surface_normal_depth(depth_map):
     if foreground_count > 0:
         average_normal_z = normal_depth_sum / foreground_count
     else:
-        average_normal_z = 0
+        average_normal_z = 1
 
-    return average_normal_z
+    # Compute the foreshortening score
+    foreshortening_score = 1 - average_normal_z
+
+    return foreshortening_score
 
 
 def get_depth_map(test_number, random_test):
