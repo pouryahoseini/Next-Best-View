@@ -75,15 +75,15 @@ def crop_sample(input_image, crop_mode):
 
     # Determine the crop operation
     if crop_mode == 0:  # zoom by a factor of 2
-        processed_image = cv.resize(input_image[height / 4: (3 * height) / 4, width / 4: (3 * width) / 4], input_image.shape[: -1])
+        processed_image = cv.resize(input_image[int(height / 4): int(3 * height / 4), int(width / 4): int(3 * width / 4)], input_image.shape[: -1])
     elif crop_mode == 1:    # crop one-third from the top
-        processed_image = cv.resize(input_image[height / 3:, :], input_image.shape[: -1])
+        processed_image = cv.resize(input_image[int(height / 3):, :], input_image.shape[: -1])
     elif crop_mode == 2:    # crop one-third from the bottom
-        processed_image = cv.resize(input_image[0: (2 * height) / 3, :], input_image.shape[: -1])
+        processed_image = cv.resize(input_image[: int(2 * height / 3), :], input_image.shape[: -1])
     elif crop_mode == 3:    # crop one-third from left
-        processed_image = cv.resize(input_image[:, width / 3:], input_image.shape[: -1])
+        processed_image = cv.resize(input_image[:, int(width / 3):], input_image.shape[: -1])
     else:    # crop one-third from right
-        processed_image = cv.resize(input_image[:, : (2 * width) / 3], input_image.shape[: -1])
+        processed_image = cv.resize(input_image[:, : int(2 * width / 3)], input_image.shape[: -1])
 
     return processed_image
 
