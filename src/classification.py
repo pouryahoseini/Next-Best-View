@@ -27,11 +27,11 @@ class Classifier:
         self.config = configurations
 
         # Initialize a PCA projector instance if needed
-        if 'HOG' in self.config["svm_feature_types"]:
-            self.pca_projector = feature_engineering.PCAProjector()
+        if self.config['classifier_type'] == 'SVM' and 'HOG' in self.config["svm_feature_types"]:
+            self.pca_projector = feature_engineering.PCAProjector(load_dir=load_dir)
 
         # Load data normalizer
-        self.load_normalizer()
+        self.load_normalizer(load_dir, configurations['classifier_type'])
 
         # Set the classification function to use
         if configurations['classifier_type'] == 'NN':
@@ -45,12 +45,15 @@ class Classifier:
 
         # Read the object labels from file
         labels_csv = pd.read_csv('./model/labels.csv')
-        labels_index = labels_csv.columns.index('Labels')
+        labels_index = list(labels_csv.columns).index('Labels')
         self.labels = np.array(labels_csv)[labels_index]
 
         # Load the classifier model and if necessary feature descriptor model
         if configurations['classifier_type'] == 'NN':
-            self.model = tf.keras.models.load_model(os.path.join(load_dir, 'CNN.h5'))
+            if self.config['nn_network_architecture'] == 'resnet101':
+                self.model = tf.keras.models.load_model(os.path.join(load_dir, 'Resnet.h5'))
+            else:
+                self.model = tf.keras.models.load_model(os.path.join(load_dir, 'CNN_' + str(self.config['nn_network_architecture']) + '.h5'))
 
         elif configurations['classifier_type'] == 'RF':
             self.feature_extractor = feature_engineering.KeypointFeaturesExtractor(load_dir, configurations)
@@ -58,8 +61,6 @@ class Classifier:
                 self.model = pickle.load(model_file)
 
         elif configurations['classifier_type'] == 'SVM':
-            with open(os.path.join(load_dir, 'PCA.pkl'), 'rb') as pca_file:
-                self.feature_reduction = pickle.load(pca_file)
             with open(os.path.join(load_dir, 'SVM.pkl'), 'rb') as model_file:
                 self.model = pickle.load(model_file)
 
@@ -77,7 +78,7 @@ class Classifier:
         probability_vector = self.classify_fn(image)
 
         # If Dempster-Shafer fusion enabled, separate the Universal class value and keep the sum of probabilities at 1
-        if self.config['decision_fusion_type'] == 'DST':
+        if self.config['decision_fusion_type'] == 'Dempster-Shafer':
             self.dst_unscaled_masses = probability_vector[: -1]
             self.dst_universal_mass = probability_vector[-1]
             probability_vector = (1.0 / np.sum(self.dst_unscaled_masses)) * self.dst_unscaled_masses
@@ -91,11 +92,20 @@ class Classifier:
         :return: Class probability (1D array)
         """
 
-        # Convert pixel values to a range of 0 and 1
-        image = image / 255.0
+        # Resize the image to fit the network input
+        image = cv.resize(image, self.model.layers[0].input_shape[0][2:0:-1])
+
+        # Convert pixel values to the desired range
+        if self.config['nn_network_architecture'] == 'resnet101':
+            image = tf.keras.applications.resnet.preprocess_input(image)
+        else:
+            image = image / 255.0
+
+        # Add the samples axis
+        image = np.expand_dims(image, axis=0)
 
         # Classify
-        class_scores = self.model.predict(image)
+        class_scores = np.squeeze(self.model.predict(image))
 
         return class_scores
 
@@ -118,16 +128,16 @@ class Classifier:
 
         # Reduce HOG features
         if 'HOG' in self.config["svm_feature_types"]:
-            hog_features = self.pca_projector.pca_project(sample=hog_features, pca=self.feature_reduction)
+            hog_features = self.pca_projector.pca_project(sample=hog_features)
 
         # Concatenate the feature vectors
         feature_vector = np.concatenate((hog_features, color_hist_features, hu_moments_features))
 
         # Normalize the input feature vector
-        feature_vector = self.normalizer.transform(feature_vector)
+        feature_vector = self.normalizer.transform(feature_vector.reshape((1, -1)))
 
         # Classify
-        class_scores = self.model.predict_proba(feature_vector)
+        class_scores = np.squeeze(self.model.predict_proba(feature_vector))
 
         return class_scores
 
@@ -142,20 +152,30 @@ class Classifier:
         feature_vector = self.feature_extractor.extract_features(image)
 
         # Normalize the input feature vector
-        feature_vector = self.normalizer.transform(feature_vector)
+        feature_vector = self.normalizer.transform(feature_vector.reshape((1, -1)))
 
         # Classify
-        class_scores = self.model.predict_proba(feature_vector)
+        class_scores = np.squeeze(self.model.predict_proba(feature_vector))
 
         return class_scores
 
-    def load_normalizer(self):
+    def load_normalizer(self, load_dir, classifier_type):
         """
+        :param load_dir: Load directory (str)
+        :param classifier_type: Classifier type to load the respective feature normalizer
         Load data normalizer from drive.
         """
 
+        # Set the name of the normalizer to load
+        if classifier_type == 'RF':
+            filename = 'Normalizer_RF'
+        elif classifier_type == 'SVM':
+            filename = 'Normalizer_SVM'
+        else:   # In the case of any classifier that does not need a normalizer to load, just skip
+            return
+
         # Load normalizer from file
-        with open('./model/Normalizer.pkl', 'rb') as normalizer_file:
+        with open(os.path.join(load_dir, filename + '.pkl'), 'rb') as normalizer_file:
             self.normalizer = pickle.load(normalizer_file)
 
     def find_winner_class(self, probability_vector):
