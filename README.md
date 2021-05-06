@@ -20,7 +20,7 @@ Our team worked on gathering a small dataset to be used specifically as a benchm
 
 The next best view method can work with any classifier. In our implementation, the following classifiers are available:
 * Four convolutional neural networks, including a ResNet 101
-* A support vector machine with Hu moments, color histogram, and/or histogram of oriented gradients (HOG) as the features with principal component analysis (PCA) as the feature reduction method
+* A support vector machine with Hu moment invariants, color histogram, and/or histogram of oriented gradients (HOG) as the features with principal component analysis (PCA) as the feature reduction method
 * A random forest with a bag of words feature descriptor on top of the SIFT or KAZE keypoint extractor and descriptor.
 In addition, to combine the classification results of the original view and the next one, three decsion fusion techniques are implemented: Naive Bayes, Dempster-Shafer, and averaging.
 
