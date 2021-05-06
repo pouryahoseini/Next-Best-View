@@ -31,7 +31,10 @@ class KeypointFeaturesExtractor:
 
         # Load the bag of words extractor instance
         with open(os.path.join(load_dir, 'BOW.pkl'), 'rb') as bow_file:
-            self.bag_of_words_extractor = pickle.load(bow_file)
+            bow_vocabulary = pickle.load(bow_file)
+        descriptor_matcher = cv.BFMatcher(cv.NORM_L2)
+        self.bag_of_words_extractor = cv.BOWImgDescriptorExtractor(self.keypoint_detector_descriptor, descriptor_matcher)
+        self.bag_of_words_extractor.setVocabulary(bow_vocabulary)
 
     def extract_features(self, image):
         """
@@ -50,7 +53,7 @@ class KeypointFeaturesExtractor:
         bag_of_words_descriptor = self.bag_of_words_extractor.compute(image, keypoints)
 
         # If no keypoint found, set the feature vector to all zero
-        if bag_of_words_descriptor is not None:
+        if bag_of_words_descriptor is None:
             bag_of_words_descriptor = np.zeros(self.bag_of_words_extractor.descriptorSize(), dtype=np.float32)
 
         return bag_of_words_descriptor
@@ -122,9 +125,9 @@ def train_keypoint_features_extractor(images, labels, bag_of_words_feature_type,
     # Import the bag of words vocabulary to its feature extractor
     bag_of_words_extractor.setVocabulary(bag_of_words_vocabulary)
 
-    # Save the feature extractor on drive
+    # Save the bag of words vocabulary on drive
     with open(os.path.join(save_dir, 'BOW.pkl'), 'wb') as bow_file:
-        pickle.dump(bag_of_words_extractor, bow_file)
+        pickle.dump(bag_of_words_vocabulary, bow_file)
 
     # Initialize the feature dataset
     bow_labels = np.zeros(images.shape[0], dtype=int)
@@ -192,15 +195,15 @@ def extract_engineered_features(images, feature_types, hog_window_size, hog_bloc
     if 'HOG' in feature_types:
         hog_features = np.squeeze(np.concatenate([np.expand_dims(row, axis=0) for row in hog_features], axis=0))
     else:
-        hog_features = np.zeros((images.shape[0], 0), dtype=float)
+        hog_features = np.squeeze(np.zeros((images.shape[0], 0), dtype=float))
     if 'ColorHistogram' in feature_types:
         color_hist_features = np.squeeze(np.concatenate([np.expand_dims(row, axis=0) for row in color_hist_features], axis=0))
     else:
-        color_hist_features = np.zeros((images.shape[0], 0), dtype=float)
+        color_hist_features = np.squeeze(np.zeros((images.shape[0], 0), dtype=float))
     if 'HuMoments' in feature_types:
         hu_moments_features = np.squeeze(np.concatenate([np.expand_dims(row, axis=0) for row in hu_moments_features], axis=0))
     else:
-        hu_moments_features = np.zeros((images.shape[0], 0), dtype=float)
+        hu_moments_features = np.squeeze(np.zeros((images.shape[0], 0), dtype=float))
 
     return hog_features, color_hist_features, hu_moments_features
 
@@ -274,7 +277,7 @@ def hog_descriptor(image, hog_window_size, hog_block_size, hog_block_stride, hog
     """
 
     # Define a Histogram of Oriented Gradients (HOG) descriptor
-    hog = cv.HOGDescriptor(winSize=hog_window_size, blockSize=hog_block_size, blockStride=hog_block_stride, cellSize=hog_cell_size, nbins=hog_bin_no)
+    hog = cv.HOGDescriptor(hog_window_size, hog_block_size, hog_block_stride, hog_cell_size, hog_bin_no)
 
     # Convert to grayscale image
     gray_image = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
@@ -302,7 +305,7 @@ def pca_train(features_dataset, number_of_features, save_directory):
     features_dataset = normalizer.fit_transform(features_dataset)
 
     # Save the normalizer on drive
-    with open('./model/PCA_Normalizer.pkl', 'wb') as normalizer_file:
+    with open(os.path.join(save_directory, 'PCA_Normalizer.pkl'), 'wb') as normalizer_file:
         pickle.dump(normalizer, normalizer_file)
 
     # Create a PCA object
@@ -319,37 +322,42 @@ def pca_train(features_dataset, number_of_features, save_directory):
 
 
 class PCAProjector:
-    def __init__(self):
+    def __init__(self, load_dir):
         """
+        :param load_dir: Directory to load the
         Constructor
         """
 
         # Load the normalizer for PCA
-        with open('./model/PCA_Normalizer.pkl', 'rb') as normalizer_file:
+        with open(os.path.join(load_dir, 'PCA_Normalizer.pkl'), 'rb') as normalizer_file:
             self.normalizer = pickle.load(normalizer_file)
 
-    def pca_project(self, sample, pca):
+        # Load the PCA instance
+        with open(os.path.join(load_dir, 'PCA.pkl'), 'rb') as pca_file:
+            self.pca = pickle.load(pca_file)
+
+    def pca_project(self, sample):
         """
         Reduce features using a pre-trained PCA.
         :param sample: Sample or samples to reduce their features (1D or 2D numpy arrays)
-        :param pca: Pre-trained PCA
         :return: Sample or samples with reduced features
         """
+
+        # Check the shape of the sample array
+        dimensions_no = sample.ndim
+        if dimensions_no == 1:
+            sample = np.reshape(sample, (1, -1))
+        elif dimensions_no > 2:
+            raise Exception("Number of dimensions of the input data for PCA should be at most 2.")
 
         # Normalize the input sample
         sample = self.normalizer.transform(sample)
 
-        # Check the shape of the sample array
-        if sample.ndim == 1:
-            sample = np.reshape(sample, (1, -1))
-        elif sample.ndim > 2:
-            raise Exception("Number of dimensions of the input data for PCA should be at most 2.")
-
         # Project to lower dimensions
-        projected_sample = pca.transform(sample)
+        projected_sample = self.pca.transform(sample)
 
         # If the original sample was 1D, return 1D
-        if sample.ndim == 1:
+        if dimensions_no == 1:
             projected_sample = np.squeeze(projected_sample)
 
         return projected_sample
