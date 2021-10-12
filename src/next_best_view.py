@@ -43,11 +43,10 @@ class NextBestView:
         side_probabilities = np.zeros(self.total_tiles_no, dtype=object)
         fused_probabilities = np.zeros(self.total_tiles_no, dtype=object)
         surface_normal_score = np.zeros(self.total_tiles_no, dtype=np.float)
-        converted_hist_variance = np.zeros(self.total_tiles_no, dtype=np.float)
-        converted_hist_moment_3 = np.zeros(self.total_tiles_no, dtype=np.float)
+        hist_variance = np.zeros(self.total_tiles_no, dtype=np.float)
         hist_uniformity = np.zeros(self.total_tiles_no, dtype=np.float)
-        hist_information_gain = np.zeros(self.total_tiles_no, dtype=np.float)
-        csv_data = np.zeros((benchmarks_no * self.variations, 12), dtype=object)
+        hist_negative_entropy = np.zeros(self.total_tiles_no, dtype=np.float)
+        csv_data = np.zeros((benchmarks_no * self.variations, 11), dtype=object)
 
         # Read index of object labels
         labels_data_frame = pd.read_csv('./model/labels.csv')
@@ -115,6 +114,12 @@ class NextBestView:
             if self.config["decision_fusion_type"] == 'Dempster-Shafer':
                 frontal_probabilities_unscaled, frontal_universal = classifier[0].get_dst_masses()
 
+            # Compute entropy of the frontal image
+            # gray_frontal = cv.cvtColor(frontal_image, cv.COLOR_BGR2GRAY)
+            # frontal_hist = np.squeeze(cv.calcHist(gray_frontal, channels=(0,), histSize=(128,), ranges=(0, 256), mask=None))
+            # frontal_hist /= np.sum(frontal_hist)
+            # frontal_entropy = - np.sum(frontal_hist * np.log2(frontal_hist + np.finfo(float).eps))
+
             # For each tile
             for tile_no in range(self.total_tiles_no):
 
@@ -131,23 +136,18 @@ class NextBestView:
 
                 # Calculate histogram of grayscale tile
                 gray_tile = cv.cvtColor(tile_image, cv.COLOR_BGR2GRAY)
-                tile_hist = np.squeeze(cv.calcHist(gray_tile, channels=(0,), histSize=(128,), ranges=(0, 256), mask=None))
+                tile_hist = np.squeeze(cv.calcHist([gray_tile], channels=(0,), histSize=(128,), ranges=(0, 256), mask=None))
                 tile_hist /= np.sum(tile_hist)
 
                 # Compute histogram variance of the tile
                 hist_mean = np.sum(tile_hist * np.arange(0, 256, 2))
-                hist_variance = np.sum(((np.arange(0, 256, 2) - hist_mean) ** 2) * tile_hist)
-                converted_hist_variance[tile_no] = 1 - (1.0 / (1 + hist_variance))
+                hist_variance[tile_no] = np.sum(((np.arange(0, 256, 2) - hist_mean) ** 2) * tile_hist)
 
-                # Compute histogram third moment of the tile
-                hist_moment_3 = np.sum(((np.arange(0, 256, 2) - hist_mean) ** 3) * tile_hist)
-                converted_hist_moment_3[tile_no] = 1.0 / (1 + np.abs(hist_moment_3))
+                # Compute histogram uniformity of the tile (additive inverse of gini index)
+                hist_uniformity[tile_no] = - (1 - np.sum(tile_hist ** 2))
 
-                # Compute histogram uniformity of the tile
-                hist_uniformity[tile_no] = np.sum(tile_hist ** 2)
-
-                # Compute histogram information gain of the tile (entropy of the original frontal image is constant for all the tiles; so it is set to 0)
-                hist_information_gain[tile_no] = 0 + np.sum(tile_hist * np.log2(tile_hist + np.finfo(float).eps))
+                # Compute histogram negative entropy of the tile
+                hist_negative_entropy[tile_no] = np.sum(tile_hist * np.log2(tile_hist + np.finfo(float).eps))
 
                 # Read the side image, corresponding to the tile
                 side_image_address = os.path.join('./test_set/', test_dir, str(tile_no + 1) + '.jpg')
@@ -178,9 +178,8 @@ class NextBestView:
                                        tile_probabilities_specific.copy(),
                                        tile_probabilities_general.copy(),
                                        hist_uniformity.copy(),
-                                       converted_hist_variance.copy(),
-                                       converted_hist_moment_3.copy(),
-                                       hist_information_gain.copy(),
+                                       hist_variance.copy(),
+                                       hist_negative_entropy.copy(),
                                        surface_normal_score.copy(),
                                        label_code], dtype=object)
 
@@ -195,9 +194,8 @@ class NextBestView:
                                                   'Tile Probabilities (Dedicated Classifier)',
                                                   'Tile Probabilities (Common Classifier)',
                                                   'Histogram Uniformity',
-                                                  'Converted Histogram Variance',
-                                                  'Converted Histogram Third Moment',
-                                                  'Histogram Information Gain',
+                                                  'Histogram Variance',
+                                                  'Histogram Negative Entropy',
                                                   'Surface Normal Score',
                                                   'Label'])
         df.to_csv('./results/scores.csv', index=False)
@@ -214,7 +212,8 @@ class NextBestView:
         Evaluate the next best view mechanism.
         """
 
-        evaluation.evaluate(self.config, compute_next_best_view, classification_dissimilarity, self.total_tiles_no)
+        evaluation.evaluate(self.config, compute_next_best_view, classification_sum_absolute_difference,
+                            classification_negative_entropy, classification_kl_divergence, self.total_tiles_no)
 
     def read_config(self, config_file, config_section='DEFAULT'):
         """
@@ -322,33 +321,56 @@ def extract_tile(image, tile_no):
     return tile
 
 
-def classification_dissimilarity(tile_probs, front_probs):
+def classification_sum_absolute_difference(tile_probs, front_probs):
     """
-    Measure the classification dissimilarity of the frontal view and a tile.
+    Measure the sum of absolute difference (SAD) of classifications of the frontal view and a tile.
     :param tile_probs: Classification probabilities of the tile (1D array)
     :param front_probs: Classification probabilities of the frontal view (1D array)
-    :return: Classification dissimilarity (float)
+    :return: Classification SAD (float)
     """
 
-    # Measure classification dissimilarity by computing sum of absolute difference
-    diff = np.abs(np.array(tile_probs) - np.array(front_probs))
-    dissimilarity = np.sum(diff)
+    sad = np.sum(np.abs(np.array(tile_probs) - np.array(front_probs)))
 
-    return dissimilarity
+    return sad
 
 
-def compute_next_best_view(histogram_variance, histogram_third_moment, foreshortening, classification_dissimilarity):
+def classification_negative_entropy(tile_probs):
     """
-    Choose the tile with the highest votes among the four criteria.
-    :param histogram_variance: Criterion 1, Variance of histogram (array of floats)
-    :param histogram_third_moment: Criterion 2, Third moment of histogram (array of floats)
-    :param foreshortening: Criterion 3, Foreshortening score (array of floats)
-    :param classification_dissimilarity: Criterion 4, Classification dissimilarity to the frontal image classification (array of floats)
-    :return: The chosen tile number (int), scores of each tile (array of floats)
+    Measure the negative entropy of classifications of a tile.
+    :param tile_probs: Classification probabilities of the tile (1D array)
+    :return: Classification information gain (float)
+    """
+
+    tile_probs = np.array(tile_probs)
+    negative_entropy = np.sum(tile_probs * np.log2(tile_probs + np.finfo(float).eps))
+
+    return negative_entropy
+
+
+def classification_kl_divergence(tile_probs, front_probs):
+    """
+    Measure the KL divergence of classifications of the frontal view and a tile.
+    :param tile_probs: Classification probabilities of the tile (1D array)
+    :param front_probs: Classification probabilities of the frontal view (1D array)
+    :return: Classification KL divergence (float)
+    """
+
+    front_probs, tile_probs = np.array(front_probs), np.array(tile_probs)
+    kl_divergence = np.sum(front_probs * np.log2(front_probs + np.finfo(float).eps)) - np.sum(front_probs * np.log2(tile_probs + np.finfo(float).eps))
+
+    return kl_divergence
+
+
+def compute_next_best_view(criteria):
+    """
+    Choose the tile with the highest votes among the criteria.
+    :param criteria: Criteria in deciding the next best view. It is an array of array of floats, with each element of
+    the outer array being a criterion, and each element of that being a float value that are the score of tiles.
+    :return: Winner tile number, Histogram of votes to tiles
     """
 
     # Create a histogram of votes
-    combined_histogram, _ = np.histogram(np.concatenate([[x] * i for measure in (histogram_variance, histogram_third_moment, foreshortening, classification_dissimilarity) for i, x in enumerate(np.argsort(measure))]), bins=np.arange(0, 6))
+    combined_histogram, _ = np.histogram(np.concatenate([[x] * i for measure in criteria for i, x in enumerate(np.argsort(measure))]), bins=np.arange(0, 6))
 
     # Add noise, less than 1, to the vote counts to resolve ties in a random manner
     combined_measure_scores = combined_histogram + np.random.rand(combined_histogram.size)
