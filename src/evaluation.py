@@ -8,12 +8,14 @@ from sklearn import metrics
 from sklearn import preprocessing
 
 
-def evaluate(config, next_best_view, classification_dissimilarity, tile_number):
+def evaluate(config, next_best_view, classification_sum_absolute_difference, classification_negative_entropy, classification_kl_divergence, tile_number):
     """
     Compute the next best view and evaluate its results in different conditions.
     :param config: Configurations from the config file (dictionary)
     :param next_best_view: The function to be used for computing the next best view method (function object)
-    :param classification_dissimilarity: The function to be used for computing the classification dissimilarity measure (function object)
+    :param classification_sum_absolute_difference: The function to be used for computing sum of absolute difference of the frontal and tile classifications (function object)
+    :param classification_negative_entropy: The function to be used for computing negative entropy of the tile classifications (function object)
+    :param classification_kl_divergence: The function to be used for computing KL divergence of the frontal and tile classifications (function object)
     :param tile_number: Number of tiles in the tests (int)
     """
 
@@ -26,8 +28,8 @@ def evaluate(config, next_best_view, classification_dissimilarity, tile_number):
             os.remove(os.path.join(output_address, file))
 
     # Set the names of the methods and metric names
-    measure_names = ['Random', 'Histogram Uniformity', 'Histogram Variance', 'Histogram Third Moment', 'Information Gain', 'Surface Normal Score', 'Classification Dissimilarity', 'Classification Dissimilarity (common classifier)', 'Proposed NBV']
-    metric_names = ['Accuracy', 'Precision', 'Recall', 'F\u2081 score']
+    measure_names = ['Random'] + ['Histogram Variance', 'Surface Normal Score', 'Classification KL Divergence', 'Classification KL Divergence (single classifier)', 'Histogram Negative Entropy', 'Classification Negative Entropy', 'Classification SAD'] + ['Proposed NBV']
+    metric_names = ['Accuracy', 'Precision', 'Recall', 'F1 score']
 
     # Get the list of object labels
     labels_data_frame = pd.read_csv('./model/labels.csv')
@@ -138,9 +140,8 @@ def evaluate(config, next_best_view, classification_dissimilarity, tile_number):
                 tile_probabilities_dedicated = row[test_columns.index('Tile Probabilities (Dedicated Classifier)')]
                 tile_probabilities_shared = row[test_columns.index('Tile Probabilities (Common Classifier)')]
                 tile_uniformity = row[test_columns.index('Histogram Uniformity')]
-                tile_variance = row[test_columns.index('Converted Histogram Variance')]
-                tile_converted_moment3 = row[test_columns.index('Converted Histogram Third Moment')]
-                tile_information_gain = row[test_columns.index('Histogram Information Gain')]
+                tile_variance = row[test_columns.index('Histogram Variance')]
+                tile_negative_entropy = row[test_columns.index('Histogram Negative Entropy')]
                 tile_surface_normal_score = row[test_columns.index('Surface Normal Score')]
 
                 # Determine confidence on the frontal detection
@@ -159,19 +160,31 @@ def evaluate(config, next_best_view, classification_dissimilarity, tile_number):
                 front_gt_prob = front_probability[true_index]
                 fused_gt_prob = [f[true_index] for f in fused_probabilities]
 
-                # Find the undecidedness of the tile classifications
-                tile_undecidedness_dedicated = np.array([classification_dissimilarity(u, front_probability) for u in tile_probabilities_dedicated])
-                tile_undecidedness_dedicated = np.reshape(preprocessing.minmax_scale(tile_undecidedness_dedicated), (tile_number,))
-                tile_undecidedness_shared = np.reshape(preprocessing.minmax_scale(np.array([classification_dissimilarity(u, front_probability) for u in tile_probabilities_shared])), (tile_number,))
+                # Compute the classification sum of absolute difference
+                tile_classification_sad = np.array([classification_sum_absolute_difference(u, front_probability) for u in tile_probabilities_dedicated])
+                tile_classification_sad = np.reshape(preprocessing.minmax_scale(tile_classification_sad), (tile_number,))
+
+                # Compute the classification negative entropy
+                tile_classification_negative_entropy = np.array([classification_negative_entropy(u) for u in tile_probabilities_dedicated])
+                tile_classification_negative_entropy = np.reshape(preprocessing.minmax_scale(tile_classification_negative_entropy), (tile_number,))
+
+                # Compute the classification KL divergence
+                tile_classification_kl_divergence = np.array([classification_kl_divergence(u, front_probability) for u in tile_probabilities_dedicated])
+                tile_classification_kl_divergence = np.reshape(preprocessing.minmax_scale(tile_classification_kl_divergence), (tile_number,))
+                tile_classification_kl_divergence_shared = np.reshape(preprocessing.minmax_scale(np.array([classification_kl_divergence(u, front_probability) for u in tile_probabilities_shared])), (tile_number,))
+
+                # Set the undecidedness of the tile classifications
+                tile_undecidedness_dedicated = tile_classification_kl_divergence
+                tile_undecidedness_shared = tile_classification_kl_divergence_shared
 
                 # Rate tiles with the next best view method
-                _, combined_measure = next_best_view(tile_variance, tile_converted_moment3, tile_surface_normal_score, tile_undecidedness_dedicated)
+                _, combined_measure = next_best_view((tile_variance, tile_surface_normal_score, tile_undecidedness_dedicated))
 
                 # Random scoring of tiles
                 tile_random = np.random.rand(tile_number)
 
                 # Make the list of measure
-                measures = [tile_random, tile_uniformity, tile_variance, tile_converted_moment3, tile_information_gain, tile_surface_normal_score, tile_undecidedness_dedicated, tile_undecidedness_shared, combined_measure]
+                measures = [tile_random, tile_variance, tile_surface_normal_score, tile_undecidedness_dedicated, tile_undecidedness_shared, tile_negative_entropy, tile_classification_negative_entropy, tile_classification_sad, combined_measure]
                 assert len(measure_names) == len(measures), "The metrics in the list \"measures\" must be equal to the ones in the list \"measure_names\"."
 
                 # Save the ground truth label and the predicted label by the NBV measure, random active vision, and the frontal only classifier
