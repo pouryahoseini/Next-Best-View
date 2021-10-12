@@ -246,13 +246,13 @@ def color_histogram_descriptor(image, color_histogram_size):
     luv_image = cv.cvtColor(image, cv.COLOR_BGR2Luv)
 
     # Calculate 2D histogram of Luv color space (u and v channels)
-    uv_hist = cv.calcHist(luv_image, channels=(1, 2), histSize=(n_bins, n_bins), ranges=((0, 256), (0, 256)), mask=None)
+    uv_hist = cv.calcHist([luv_image], channels=(1, 2), histSize=(n_bins, n_bins), ranges=(0, 256, 0, 256), mask=None)
 
     # Transform the input image to HSV color space
     hsv_image = cv.cvtColor(image, cv.COLOR_BGR2HSV)
 
     # Calculate 2D histogram of HSV color space (H and S channels)
-    hs_hist = cv.calcHist(hsv_image, channels=(0, 1), histSize=(n_bins, n_bins), ranges=((0, 180), (0, 256)), mask=None)
+    hs_hist = cv.calcHist([hsv_image], channels=(0, 1), histSize=(n_bins, n_bins), ranges=(0, 180, 0, 256), mask=None)
 
     # Flatten the 2D histograms
     uv_hist = uv_hist.ravel()
